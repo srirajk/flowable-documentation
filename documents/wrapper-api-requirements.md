@@ -194,3 +194,51 @@ Queues defined by:
 - Fair distribution (±10% across team)
 - Zero permission errors
 - Real-time queue counts
+
+## Key Architecture Decision: Wrapper-Managed Queues
+
+### The Approach
+When a task is completed:
+1. **Event Triggered** (via Postgres WAL or Spring event listener)
+2. **Wrapper API queries** "What tasks are now active?"
+3. **Updates internal queue state** with task metadata
+4. **Manages queue assignment** based on business rules
+
+### Benefits of Managing Queue State in Wrapper
+- **Performance**: No constant polling of Flowable
+- **Enrichment**: Add business metadata not in Flowable
+- **Custom Routing**: Apply complex rules outside BPMN
+- **Analytics**: Track queue metrics, wait times
+- **Real-time**: Instant notifications via wrapper's state
+
+### Event Options
+1. **Postgres WAL** 
+   - Listen to Flowable's database changes
+   - Get notified when task table changes
+   - Most real-time option
+
+2. **Spring Boot Event Hooks**
+   - Use Flowable's event listeners
+   - Cleaner integration
+   - Example: `@EventListener(TaskCreatedEvent.class)`
+
+3. **Flowable Task Listeners**
+   - Configure in BPMN
+   - Call wrapper API on task events
+   - More control per process
+
+### Queue State in Wrapper
+```
+Wrapper maintains:
+- Task ID → Queue mapping
+- Task metadata (title, priority, SLA)
+- Assignment history
+- Queue statistics
+- User workload
+
+Flowable maintains:
+- Process state
+- Task ownership
+- Process variables
+- Execution flow
+```
