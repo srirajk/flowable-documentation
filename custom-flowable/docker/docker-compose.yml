@@ -1,0 +1,68 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: flowable-wrapper-postgres
+    environment:
+      POSTGRES_DB: flowable_wrapper
+      POSTGRES_USER: flowable
+      POSTGRES_PASSWORD: flowable
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./postgres/init.sql:/docker-entrypoint-initdb.d/init.sql
+    networks:
+      - flowable-network
+
+  keycloak:
+    image: quay.io/keycloak/keycloak:25.0.6
+    container_name: flowable-keycloak
+    environment:
+      KEYCLOAK_ADMIN: admin
+      KEYCLOAK_ADMIN_PASSWORD: admin
+      KC_DB: postgres
+      KC_DB_URL: jdbc:postgresql://postgres:5432/flowable_wrapper
+      KC_DB_USERNAME: flowable
+      KC_DB_PASSWORD: flowable
+      KC_DB_SCHEMA: keycloak
+      KC_HEALTH_ENABLED: true
+      KC_METRICS_ENABLED: true
+      KC_HTTP_ENABLED: true
+      KC_HOSTNAME_STRICT: false
+    command:
+      - start-dev
+    ports:
+      - "8180:8080"
+    depends_on:
+      - postgres
+    networks:
+      - flowable-network
+    volumes:
+      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json
+
+  flowable-wrapper-v2:
+    build: ../flowable-wrapper-v2
+    container_name: flowable-wrapper-v2
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/flowable_wrapper
+      SPRING_DATASOURCE_USERNAME: flowable
+      SPRING_DATASOURCE_PASSWORD: flowable
+      SPRING_JPA_HIBERNATE_DDL_AUTO: update
+      FLOWABLE_DATABASE_SCHEMA_UPDATE: true
+    ports:
+      - "8090:8090"
+    depends_on:
+      - postgres
+    networks:
+      - flowable-network
+    volumes:
+      - ../definitions:/app/definitions:ro
+
+volumes:
+  postgres_data:
+
+networks:
+  flowable-network:
+    driver: bridge

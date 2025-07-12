@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             xmlns:flowable="http://flowable.org/bpmn"
+             targetNamespace="http://www.flowable.org/processdef">
+
+    <process id="simpleApproval" name="Simple Approval Process" isExecutable="true">
+        
+        <startEvent id="start" name="Start">
+            <extensionElements>
+                <flowable:formProperty id="requester" name="Requester" type="string" required="true"/>
+                <flowable:formProperty id="amount" name="Amount" type="long" required="true"/>
+                <flowable:formProperty id="description" name="Description" type="string"/>
+            </extensionElements>
+        </startEvent>
+        
+        <userTask id="managerApproval" name="Manager Approval" flowable:candidateGroups="managers">
+            <documentation>
+                Approve request from ${requester} for amount ${amount}
+            </documentation>
+            <extensionElements>
+                <flowable:formProperty id="approved" name="Approved" type="boolean" required="true"/>
+                <flowable:formProperty id="comments" name="Comments" type="string"/>
+            </extensionElements>
+        </userTask>
+        
+        <endEvent id="end" name="End"/>
+        
+        <sequenceFlow id="flow1" sourceRef="start" targetRef="managerApproval"/>
+        <sequenceFlow id="flow2" sourceRef="managerApproval" targetRef="end"/>
+        
+    </process>
+</definitions>
