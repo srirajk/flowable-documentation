@@ -1,9 +1,0 @@
-target/
-*.log
-.git/
-.gitignore
-.idea/
-*.iml
-.DS_Store
-test-run-*.md
-README.md

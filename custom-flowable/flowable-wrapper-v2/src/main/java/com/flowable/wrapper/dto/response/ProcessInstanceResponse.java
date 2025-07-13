@@ -42,4 +42,13 @@ public class ProcessInstanceResponse {
     
     @Schema(description = "Process variables")
     private Map<String, Object> variables;
+    
+    @Schema(description = "Is the process instance active (not completed)", example = "true")
+    private Boolean active;
+    
+    @Schema(description = "End time of the process instance (for completed processes)")
+    private Instant endTime;
+    
+    @Schema(description = "Duration in milliseconds (for completed processes)", example = "120000")
+    private Long durationInMillis;
 }

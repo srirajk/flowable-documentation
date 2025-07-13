@@ -21,6 +21,9 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.io.ByteArrayInputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.nio.file.Paths;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -202,6 +205,43 @@ public class WorkflowMetadataService {
         // No mapping found for any group
         log.warn("No queue mapping found for candidate groups: {}. Using default queue.", candidateGroups);
         return "default";
+    }
+    
+    /**
+     * Deploy BPMN workflow from a file in the mounted definitions directory
+     */
+    public WorkflowMetadataResponse deployWorkflowFromFile(String processDefinitionKey, String filename) throws WorkflowException {
+        log.info("Deploying workflow from file: {} for process: {}", filename, processDefinitionKey);
+        
+        // Get workflow metadata
+        WorkflowMetadata metadata = workflowMetadataRepository.findByProcessDefinitionKeyAndActiveTrue(processDefinitionKey)
+                .orElseThrow(() -> new ResourceNotFoundException("Workflow metadata", processDefinitionKey));
+        
+        try {
+            // Read BPMN file from mounted directory
+            Path filePath = Paths.get("/app/definitions", filename);
+            if (!Files.exists(filePath)) {
+                throw new ResourceNotFoundException("BPMN file", filename);
+            }
+            
+            String bpmnXml = Files.readString(filePath, StandardCharsets.UTF_8);
+            log.info("Read BPMN file successfully: {}", filename);
+            
+            // Create deploy request and use existing deploy method
+            DeployWorkflowRequest deployRequest = new DeployWorkflowRequest();
+            deployRequest.setProcessDefinitionKey(processDefinitionKey);
+            deployRequest.setBpmnXml(bpmnXml);
+            deployRequest.setDeploymentName(metadata.getProcessName() + " - " + filename);
+            
+            return deployWorkflow(deployRequest);
+            
+        } catch (ResourceNotFoundException e) {
+            throw e;
+        } catch (Exception e) {
+            log.error("Failed to read or deploy workflow file: {}", e.getMessage(), e);
+            throw new WorkflowException("FILE_DEPLOYMENT_FAILED", 
+                "Failed to deploy workflow from file: " + e.getMessage(), e);
+        }
     }
     
     /**

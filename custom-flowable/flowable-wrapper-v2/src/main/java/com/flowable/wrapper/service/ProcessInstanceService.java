@@ -8,7 +8,9 @@ import com.flowable.wrapper.exception.WorkflowException;
 import com.flowable.wrapper.repository.WorkflowMetadataRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.flowable.engine.HistoryService;
 import org.flowable.engine.RuntimeService;
+import org.flowable.engine.history.HistoricProcessInstance;
 import org.flowable.engine.runtime.ProcessInstance;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -24,6 +26,7 @@ import java.util.Map;
 public class ProcessInstanceService {
     
     private final RuntimeService runtimeService;
+    private final HistoryService historyService;
     private final WorkflowMetadataRepository workflowMetadataRepository;
     private final QueueTaskService queueTaskService;
     
@@ -84,30 +87,59 @@ public class ProcessInstanceService {
     }
     
     /**
-     * Get process instance by ID
+     * Get process instance by ID - checks both active and historic instances
      */
     public ProcessInstanceResponse getProcessInstance(String processInstanceId) {
         log.info("Getting process instance: {}", processInstanceId);
         
+        // First try runtime (active processes)
         ProcessInstance processInstance = runtimeService.createProcessInstanceQuery()
                 .processInstanceId(processInstanceId)
                 .includeProcessVariables()
                 .singleResult();
                 
-        if (processInstance == null) {
-            throw new ResourceNotFoundException("Process instance", processInstanceId);
+        if (processInstance != null) {
+            log.info("Found active process instance: {}", processInstanceId);
+            return ProcessInstanceResponse.builder()
+                    .processInstanceId(processInstance.getId())
+                    .processDefinitionId(processInstance.getProcessDefinitionId())
+                    .processDefinitionKey(processInstance.getProcessDefinitionKey())
+                    .processDefinitionName(processInstance.getProcessDefinitionName())
+                    .businessKey(processInstance.getBusinessKey())
+                    .startTime(Instant.now()) // Flowable doesn't expose start time directly in runtime
+                    .startedBy(processInstance.getStartUserId())
+                    .suspended(processInstance.isSuspended())
+                    .variables(processInstance.getProcessVariables())
+                    .active(true)
+                    .build();
         }
         
-        return ProcessInstanceResponse.builder()
-                .processInstanceId(processInstance.getId())
-                .processDefinitionId(processInstance.getProcessDefinitionId())
-                .processDefinitionKey(processInstance.getProcessDefinitionKey())
-                .processDefinitionName(processInstance.getProcessDefinitionName())
-                .businessKey(processInstance.getBusinessKey())
-                .startTime(Instant.now()) // Flowable doesn't expose start time directly
-                .startedBy(processInstance.getStartUserId())
-                .suspended(processInstance.isSuspended())
-                .variables(processInstance.getProcessVariables())
-                .build();
+        // Not found in runtime, check history
+        HistoricProcessInstance historicInstance = historyService.createHistoricProcessInstanceQuery()
+                .processInstanceId(processInstanceId)
+                .includeProcessVariables()
+                .singleResult();
+                
+        if (historicInstance != null) {
+            log.info("Found completed process instance in history: {}", processInstanceId);
+            return ProcessInstanceResponse.builder()
+                    .processInstanceId(historicInstance.getId())
+                    .processDefinitionId(historicInstance.getProcessDefinitionId())
+                    .processDefinitionKey(historicInstance.getProcessDefinitionKey())
+                    .processDefinitionName(historicInstance.getProcessDefinitionName())
+                    .businessKey(historicInstance.getBusinessKey())
+                    .startTime(historicInstance.getStartTime() != null ? 
+                        historicInstance.getStartTime().toInstant() : null)
+                    .endTime(historicInstance.getEndTime() != null ? 
+                        historicInstance.getEndTime().toInstant() : null)
+                    .startedBy(historicInstance.getStartUserId())
+                    .suspended(false) // Completed processes are not suspended
+                    .variables(historicInstance.getProcessVariables())
+                    .active(false)
+                    .durationInMillis(historicInstance.getDurationInMillis())
+                    .build();
+        }
+        
+        throw new ResourceNotFoundException("Process instance", processInstanceId);
     }
 }

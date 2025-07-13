@@ -16,31 +16,31 @@ services:
     networks:
       - flowable-network
 
-  keycloak:
-    image: quay.io/keycloak/keycloak:25.0.6
-    container_name: flowable-keycloak
-    environment:
-      KEYCLOAK_ADMIN: admin
-      KEYCLOAK_ADMIN_PASSWORD: admin
-      KC_DB: postgres
-      KC_DB_URL: jdbc:postgresql://postgres:5432/flowable_wrapper
-      KC_DB_USERNAME: flowable
-      KC_DB_PASSWORD: flowable
-      KC_DB_SCHEMA: keycloak
-      KC_HEALTH_ENABLED: true
-      KC_METRICS_ENABLED: true
-      KC_HTTP_ENABLED: true
-      KC_HOSTNAME_STRICT: false
-    command:
-      - start-dev
-    ports:
-      - "8180:8080"
-    depends_on:
-      - postgres
-    networks:
-      - flowable-network
-    volumes:
-      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json
+#  keycloak:
+#    image: quay.io/keycloak/keycloak:25.0.6
+#    container_name: flowable-keycloak
+#    environment:
+#      KEYCLOAK_ADMIN: admin
+#      KEYCLOAK_ADMIN_PASSWORD: admin
+#      KC_DB: postgres
+#      KC_DB_URL: jdbc:postgresql://postgres:5432/flowable_wrapper
+#      KC_DB_USERNAME: flowable
+#      KC_DB_PASSWORD: flowable
+#      KC_DB_SCHEMA: keycloak
+#      KC_HEALTH_ENABLED: true
+#      KC_METRICS_ENABLED: true
+#      KC_HTTP_ENABLED: true
+#      KC_HOSTNAME_STRICT: false
+#    command:
+#      - start-dev
+#    ports:
+#      - "8180:8080"
+#    depends_on:
+#      - postgres
+#    networks:
+#      - flowable-network
+#    volumes:
+#      - ./keycloak/realm-export.json:/opt/keycloak/data/import/realm-export.json
 
   flowable-wrapper-v2:
     build: ../flowable-wrapper-v2

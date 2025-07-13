@@ -77,4 +77,23 @@ public class WorkflowMetadataController {
         
         return ResponseEntity.ok(response);
     }
+    
+    @PostMapping("/deploy-from-file")
+    @Operation(summary = "Deploy BPMN workflow from file", 
+              description = "Deploy a BPMN workflow from a file in the mounted definitions directory")
+    @ApiResponses({
+        @ApiResponse(responseCode = "200", description = "Workflow deployed successfully"),
+        @ApiResponse(responseCode = "400", description = "Invalid request or deployment failed"),
+        @ApiResponse(responseCode = "404", description = "Workflow metadata or file not found"),
+        @ApiResponse(responseCode = "500", description = "Internal server error")
+    })
+    public ResponseEntity<WorkflowMetadataResponse> deployWorkflowFromFile(
+            @RequestParam String processDefinitionKey,
+            @RequestParam String filename) throws WorkflowException {
+        
+        log.info("Deploying workflow from file: {} for process: {}", filename, processDefinitionKey);
+        WorkflowMetadataResponse response = workflowMetadataService.deployWorkflowFromFile(processDefinitionKey, filename);
+        
+        return ResponseEntity.ok(response);
+    }
 }
