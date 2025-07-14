@@ -1,0 +1,197 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions id="definitions"
+             targetNamespace="http://flowable.org/bpmn20"
+             xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             xmlns:flowable="http://flowable.org/bpmn">
+
+  <process id="expenseReimbursement" name="Expense Reimbursement Process">
+
+    <startEvent id="startExpense" name="Submit expense">
+      <extensionElements>
+        <flowable:formProperty id="employeeName" name="Employee Name" type="string" required="true"/>
+        <flowable:formProperty id="employeeEmail" name="Employee Email" type="string" required="true"/>
+        <flowable:formProperty id="department" name="Department" type="string" required="true"/>
+        <flowable:formProperty id="expenseAmount" name="Total Amount" type="long" required="true"/>
+        <flowable:formProperty id="expenseCategory" name="Category" type="enum" required="true">
+          <flowable:value id="travel" name="Travel"/>
+          <flowable:value id="meals" name="Meals"/>
+          <flowable:value id="supplies" name="Office Supplies"/>
+          <flowable:value id="training" name="Training"/>
+          <flowable:value id="other" name="Other"/>
+        </flowable:formProperty>
+        <flowable:formProperty id="expenseDescription" name="Description" type="string" required="true"/>
+        <flowable:formProperty id="receiptAttached" name="Receipt Attached" type="boolean" required="true"/>
+      </extensionElements>
+    </startEvent>
+
+    <sequenceFlow id="flow1" sourceRef="startExpense" targetRef="managerApproval"/>
+
+    <!-- Level 1: Manager Approval (All expenses) -->
+    <userTask id="managerApproval" name="Manager approval" flowable:candidateGroups="managers">
+      <documentation>
+        ${employeeName} submitted expense reimbursement:
+        Amount: $${expenseAmount}
+        Category: ${expenseCategory}
+        Description: ${expenseDescription}
+        Receipt: ${receiptAttached}
+      </documentation>
+      <extensionElements>
+        <flowable:formProperty id="managerDecision" name="Decision" type="enum" required="true">
+          <flowable:value id="approve" name="Approve"/>
+          <flowable:value id="reject" name="Reject"/>
+          <flowable:value id="clarification" name="Need Clarification"/>
+        </flowable:formProperty>
+        <flowable:formProperty id="managerComments" name="Comments" type="string"/>
+      </extensionElements>
+    </userTask>
+
+    <sequenceFlow id="flow2" sourceRef="managerApproval" targetRef="managerDecisionGateway"/>
+
+    <exclusiveGateway id="managerDecisionGateway" name="Manager Decision"/>
+
+    <!-- Manager Reject -->
+    <sequenceFlow id="flowManagerReject" sourceRef="managerDecisionGateway" targetRef="endRejected">
+      <conditionExpression xsi:type="tFormalExpression">${managerDecision == 'reject'}</conditionExpression>
+    </sequenceFlow>
+
+    <!-- Manager Needs Clarification -->
+    <sequenceFlow id="flowClarification" sourceRef="managerDecisionGateway" targetRef="employeeClarification">
+      <conditionExpression xsi:type="tFormalExpression">${managerDecision == 'clarification'}</conditionExpression>
+    </sequenceFlow>
+
+    <!-- Manager Approve - Check Amount -->
+    <sequenceFlow id="flowManagerApprove" sourceRef="managerDecisionGateway" targetRef="checkAmount">
+      <conditionExpression xsi:type="tFormalExpression">${managerDecision == 'approve'}</conditionExpression>
+    </sequenceFlow>
+
+    <!-- Employee Clarification Task -->
+    <userTask id="employeeClarification" name="Provide clarification" flowable:candidateGroups="employees">
+      <documentation>
+        Manager requested clarification on your expense:
+        Manager comments: ${managerComments}
+        Original amount: $${expenseAmount}
+      </documentation>
+      <extensionElements>
+        <flowable:formProperty id="clarificationProvided" name="Clarification" type="string" required="true"/>
+        <flowable:formProperty id="updatedAmount" name="Updated Amount (if changed)" type="long"/>
+        <flowable:formProperty id="additionalDocs" name="Additional Documentation" type="string"/>
+      </extensionElements>
+    </userTask>
+
+    <sequenceFlow id="flow3" sourceRef="employeeClarification" targetRef="managerApproval"/>
+
+    <!-- Amount-based Routing -->
+    <exclusiveGateway id="checkAmount" name="Check expense amount"/>
+
+    <!-- Small amount (<= $500) - Direct to Finance -->
+    <sequenceFlow id="flowSmallAmount" sourceRef="checkAmount" targetRef="financeProcessing">
+      <conditionExpression xsi:type="tFormalExpression">${expenseAmount &lt;= 500}</conditionExpression>
+    </sequenceFlow>
+
+    <!-- Medium amount ($501 - $2000) - Director approval needed -->
+    <sequenceFlow id="flowMediumAmount" sourceRef="checkAmount" targetRef="directorApproval">
+      <conditionExpression xsi:type="tFormalExpression">${expenseAmount &gt; 500 &amp;&amp; expenseAmount &lt;= 2000}</conditionExpression>
+    </sequenceFlow>
+
+    <!-- Large amount (> $2000) - VP approval needed -->
+    <sequenceFlow id="flowLargeAmount" sourceRef="checkAmount" targetRef="vpApproval">
+      <conditionExpression xsi:type="tFormalExpression">${expenseAmount &gt; 2000}</conditionExpression>
+    </sequenceFlow>
+
+    <!-- Level 2: Director Approval -->
+    <userTask id="directorApproval" name="Director approval required" flowable:candidateGroups="directors">
+      <documentation>
+        Expense requires director approval:
+        Employee: ${employeeName}
+        Amount: $${expenseAmount}
+        Category: ${expenseCategory}
+        Manager approved with comments: ${managerComments}
+      </documentation>
+      <extensionElements>
+        <flowable:formProperty id="directorDecision" name="Director Decision" type="enum" required="true">
+          <flowable:value id="approve" name="Approve"/>
+          <flowable:value id="reject" name="Reject"/>
+          <flowable:value id="escalate" name="Escalate to VP"/>
+        </flowable:formProperty>
+        <flowable:formProperty id="directorComments" name="Director Comments" type="string"/>
+      </extensionElements>
+    </userTask>
+
+    <sequenceFlow id="flow4" sourceRef="directorApproval" targetRef="directorDecisionGateway"/>
+
+    <exclusiveGateway id="directorDecisionGateway" name="Director Decision"/>
+
+    <sequenceFlow id="flowDirectorReject" sourceRef="directorDecisionGateway" targetRef="endRejected">
+      <conditionExpression xsi:type="tFormalExpression">${directorDecision == 'reject'}</conditionExpression>
+    </sequenceFlow>
+
+    <sequenceFlow id="flowDirectorApprove" sourceRef="directorDecisionGateway" targetRef="financeProcessing">
+      <conditionExpression xsi:type="tFormalExpression">${directorDecision == 'approve'}</conditionExpression>
+    </sequenceFlow>
+
+    <sequenceFlow id="flowDirectorEscalate" sourceRef="directorDecisionGateway" targetRef="vpApproval">
+      <conditionExpression xsi:type="tFormalExpression">${directorDecision == 'escalate'}</conditionExpression>
+    </sequenceFlow>
+
+    <!-- Level 3: VP Approval -->
+    <userTask id="vpApproval" name="VP approval required" flowable:candidateGroups="vps">
+      <documentation>
+        High-value expense requires VP approval:
+        Employee: ${employeeName}
+        Amount: $${expenseAmount}
+        Category: ${expenseCategory}
+        Previous approvals: Manager, Director
+      </documentation>
+      <extensionElements>
+        <flowable:formProperty id="vpDecision" name="VP Decision" type="enum" required="true">
+          <flowable:value id="approve" name="Approve"/>
+          <flowable:value id="reject" name="Reject"/>
+        </flowable:formProperty>
+        <flowable:formProperty id="vpComments" name="VP Comments" type="string"/>
+        <flowable:formProperty id="budgetCode" name="Budget Code" type="string" required="true"/>
+      </extensionElements>
+    </userTask>
+
+    <sequenceFlow id="flow5" sourceRef="vpApproval" targetRef="vpDecisionGateway"/>
+
+    <exclusiveGateway id="vpDecisionGateway" name="VP Decision"/>
+
+    <sequenceFlow id="flowVPReject" sourceRef="vpDecisionGateway" targetRef="endRejected">
+      <conditionExpression xsi:type="tFormalExpression">${vpDecision == 'reject'}</conditionExpression>
+    </sequenceFlow>
+
+    <sequenceFlow id="flowVPApprove" sourceRef="vpDecisionGateway" targetRef="financeProcessing">
+      <conditionExpression xsi:type="tFormalExpression">${vpDecision == 'approve'}</conditionExpression>
+    </sequenceFlow>
+
+    <!-- Level 4: Finance Processing -->
+    <userTask id="financeProcessing" name="Process reimbursement" flowable:candidateGroups="finance">
+      <documentation>
+        Process expense reimbursement:
+        Employee: ${employeeName}
+        Amount: $${expenseAmount}
+        Category: ${expenseCategory}
+        All approvals complete
+      </documentation>
+      <extensionElements>
+        <flowable:formProperty id="paymentMethod" name="Payment Method" type="enum" required="true">
+          <flowable:value id="direct_deposit" name="Direct Deposit"/>
+          <flowable:value id="check" name="Check"/>
+          <flowable:value id="corporate_card" name="Corporate Card Credit"/>
+        </flowable:formProperty>
+        <flowable:formProperty id="paymentReference" name="Payment Reference Number" type="string" required="true"/>
+        <flowable:formProperty id="paymentDate" name="Payment Date" type="date" required="true"/>
+        <flowable:formProperty id="financeNotes" name="Finance Notes" type="string"/>
+      </extensionElements>
+    </userTask>
+
+    <sequenceFlow id="flow6" sourceRef="financeProcessing" targetRef="endApproved"/>
+
+    <!-- End Events -->
+    <endEvent id="endApproved" name="Expense reimbursed"/>
+    <endEvent id="endRejected" name="Expense rejected"/>
+
+  </process>
+
+</definitions>
