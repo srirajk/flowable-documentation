@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions id="definitions"
+             targetNamespace="http://flowable.org/bpmn20"
+             xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             xmlns:flowable="http://flowable.org/bpmn">
+
+  <process id="vacationRequestQueue" name="Vacation Request with Queue Support">
+
+    <startEvent id="startRequest" name="Request vacation">
+      <extensionElements>
+        <flowable:formProperty id="employeeName" name="Employee Name" type="string" required="true"/>
+        <flowable:formProperty id="employeeEmail" name="Employee Email" type="string" required="true"/>
+        <flowable:formProperty id="numberOfDays" name="Number of days" type="long" value="1" required="true"/>
+        <flowable:formProperty id="startDate" name="First day of holiday (dd-MM-yyyy)" datePattern="dd-MM-yyyy" type="date" required="true"/>
+        <flowable:formProperty id="endDate" name="Last day of holiday (dd-MM-yyyy)" datePattern="dd-MM-yyyy" type="date" required="true"/>
+        <flowable:formProperty id="vacationMotivation" name="Motivation" type="string"/>
+      </extensionElements>
+    </startEvent>
+
+    <sequenceFlow id="flow1" sourceRef="startRequest" targetRef="managerReview"/>
+
+    <userTask id="managerReview" name="Review vacation request">
+      <documentation>
+        ${employeeName} has requested ${numberOfDays} day(s) of vacation from ${startDate} to ${endDate}.
+        Reason: ${vacationMotivation}
+      </documentation>
+      <extensionElements>
+        <flowable:formProperty id="managerDecision" name="Decision" type="enum" required="true">
+          <flowable:value id="approve" name="Approve"/>
+          <flowable:value id="reject" name="Reject"/>
+          <flowable:value id="escalate" name="Escalate to Director"/>
+        </flowable:formProperty>
+        <flowable:formProperty id="managerComments" name="Comments" type="string"/>
+      </extensionElements>
+      <flowable:candidateGroups>managers</flowable:candidateGroups>
+    </userTask>
+
+    <sequenceFlow id="flow2" sourceRef="managerReview" targetRef="managerDecision"/>
+
+    <exclusiveGateway id="managerDecision" name="Manager Decision"/>
+
+    <!-- Approve path -->
+    <sequenceFlow id="flowApprove" sourceRef="managerDecision" targetRef="checkVacationLength">
+      <conditionExpression xsi:type="tFormalExpression">${managerDecision == 'approve'}</conditionExpression>
+    </sequenceFlow>
+
+    <!-- Reject path -->
+    <sequenceFlow id="flowReject" sourceRef="managerDecision" targetRef="sendRejectionEmail">
+      <conditionExpression xsi:type="tFormalExpression">${managerDecision == 'reject'}</conditionExpression>
+    </sequenceFlow>
+
+    <!-- Escalate path -->
+    <sequenceFlow id="flowEscalate" sourceRef="managerDecision" targetRef="directorReview">
+      <conditionExpression xsi:type="tFormalExpression">${managerDecision == 'escalate'}</conditionExpression>
+    </sequenceFlow>
+
+    <!-- Check if vacation > 10 days for auto-escalation -->
+    <exclusiveGateway id="checkVacationLength" name="Check vacation length"/>
+
+    <sequenceFlow id="flowShortVacation" sourceRef="checkVacationLength" targetRef="hrProcessing">
+      <conditionExpression xsi:type="tFormalExpression">${numberOfDays &lt;= 10}</conditionExpression>
+    </sequenceFlow>
+
+    <sequenceFlow id="flowLongVacation" sourceRef="checkVacationLength" targetRef="directorReview">
+      <conditionExpression xsi:type="tFormalExpression">${numberOfDays &gt; 10}</conditionExpression>
+    </sequenceFlow>
+
+    <!-- Director Review -->
+    <userTask id="directorReview" name="Director approval required">
+      <documentation>
+        ${employeeName} has requested ${numberOfDays} day(s) of vacation from ${startDate} to ${endDate}.
+        Manager Comments: ${managerComments}
+        Note: This request requires director approval (either escalated by manager or >10 days).
+      </documentation>
+      <extensionElements>
+        <flowable:formProperty id="directorDecision" name="Director Decision" type="enum" required="true">
+          <flowable:value id="approve" name="Approve"/>
+          <flowable:value id="reject" name="Reject"/>
+        </flowable:formProperty>
+        <flowable:formProperty id="directorComments" name="Director Comments" type="string"/>
+      </extensionElements>
+      <flowable:candidateGroups>directors</flowable:candidateGroups>
+    </userTask>
+
+    <sequenceFlow id="flow5" sourceRef="directorReview" targetRef="directorDecision"/>
+
+    <exclusiveGateway id="directorDecision" name="Director Decision"/>
+
+    <sequenceFlow id="flowDirectorApprove" sourceRef="directorDecision" targetRef="hrProcessing">
+      <conditionExpression xsi:type="tFormalExpression">${directorDecision == 'approve'}</conditionExpression>
+    </sequenceFlow>
+
+    <sequenceFlow id="flowDirectorReject" sourceRef="directorDecision" targetRef="sendRejectionEmail">
+      <conditionExpression xsi:type="tFormalExpression">${directorDecision == 'reject'}</conditionExpression>
+    </sequenceFlow>
+
+    <!-- HR Processing -->
+    <userTask id="hrProcessing" name="Process approved vacation">
+      <documentation>
+        Process approved vacation request for ${employeeName}.
+        Days: ${numberOfDays}
+        Period: ${startDate} to ${endDate}
+        Please update the HR system and send confirmation.
+      </documentation>
+      <extensionElements>
+        <flowable:formProperty id="hrSystemId" name="HR System Record ID" type="string" required="true"/>
+        <flowable:formProperty id="confirmationSent" name="Confirmation email sent?" type="boolean" required="true"/>
+        <flowable:formProperty id="hrNotes" name="HR Processing Notes" type="string"/>
+      </extensionElements>
+      <flowable:candidateGroups>hr</flowable:candidateGroups>
+    </userTask>
+
+    <sequenceFlow id="flow6" sourceRef="hrProcessing" targetRef="sendApprovalEmail"/>
+
+    <!-- Service Tasks (would be implemented as Java delegates in real system) -->
+    <serviceTask id="sendApprovalEmail" name="Send approval confirmation" flowable:delegateExpression="${vacationApprovalEmailDelegate}">
+      <extensionElements>
+        <flowable:field name="emailTo">
+          <flowable:string>${employeeEmail}</flowable:string>
+        </flowable:field>
+      </extensionElements>
+    </serviceTask>
+
+    <sequenceFlow id="flow7" sourceRef="sendApprovalEmail" targetRef="endApproved"/>
+
+    <serviceTask id="sendRejectionEmail" name="Send rejection notification" flowable:delegateExpression="${vacationRejectionEmailDelegate}">
+      <extensionElements>
+        <flowable:field name="emailTo">
+          <flowable:string>${employeeEmail}</flowable:string>
+        </flowable:field>
+      </extensionElements>
+    </serviceTask>
+
+    <sequenceFlow id="flow8" sourceRef="sendRejectionEmail" targetRef="endRejected"/>
+
+    <!-- End Events -->
+    <endEvent id="endApproved" name="Vacation approved">
+      <extensionElements>
+        <flowable:executionListener event="start" delegateExpression="${loggingDelegate}">
+          <flowable:field name="message">
+            <flowable:string>Vacation approved for ${employeeName} - ${numberOfDays} days</flowable:string>
+          </flowable:field>
+        </flowable:executionListener>
+      </extensionElements>
+    </endEvent>
+
+    <endEvent id="endRejected" name="Vacation rejected">
+      <extensionElements>
+        <flowable:executionListener event="start" delegateExpression="${loggingDelegate}">
+          <flowable:field name="message">
+            <flowable:string>Vacation rejected for ${employeeName}</flowable:string>
+          </flowable:field>
+        </flowable:executionListener>
+      </extensionElements>
+    </endEvent>
+
+  </process>
+
+</definitions>
