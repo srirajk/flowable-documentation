@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+             xmlns:flowable="http://flowable.org/bpmn"
+             typeLanguage="http://www.w3.org/2001/XMLSchema"
+             expressionLanguage="http://www.w3.org/1999/XPath"
+             targetNamespace="http://www.flowable.org/processdef">
+
+  <process id="standardValidationPattern" name="Standard Validation Pattern Process">
+
+    <startEvent id="start"/>
+
+    <!-- 1. User Task -->
+    <userTask id="submitData" name="Submit Data" flowable:candidateGroups="level1-makers">
+    </userTask>
+
+    <!-- 2. Validation Script Task -->
+    <scriptTask id="validateData" name="Validate Submission" scriptFormat="groovy">
+      <script>
+        <![CDATA[
+          // REQUIRED: Follow naming convention for variables
+          def taskId = "submitData"; // Must match the User Task ID
+
+          // --- Start of User-Defined Validation Logic ---
+
+          def errors = new java.util.ArrayList();
+          
+          // Example 1: Check for presence of a variable
+          if (!execution.hasVariable("amount") || execution.getVariable("amount") == null) {
+            errors.add("Amount is a required field.");
+          } else {
+            // Example 2: Check for business rule
+            def amount = execution.getVariable("amount") as Integer;
+            if (amount > 5000) {
+              errors.add("Amount cannot exceed \$5,000.");
+            }
+          }
+
+          // Example 3: Check for required attachment (variable ending in '_resourceId')
+          if (!execution.hasVariable("receipt_resourceId")) {
+              errors.add("A receipt attachment is mandatory.");
+          }
+
+          // --- End of User-Defined Validation Logic ---
+
+          // REQUIRED: Set standard output variables
+          if (errors.isEmpty()) {
+            execution.setVariable(taskId + "Valid", true);
+            execution.setVariable(taskId + "ValidationError", ""); // Clear previous errors
+          } else {
+            execution.setVariable(taskId + "Valid", false);
+            execution.setVariable(taskId + "ValidationError", errors);
+          }
+        ]]>
+      </script>
+    </scriptTask>
+
+    <!-- 3. Routing Gateway -->
+    <exclusiveGateway id="validationGateway" name="Is Valid?" />
+
+    <!-- 4. Sequence Flows -->
+    <sequenceFlow id="flowToValidation" sourceRef="submitData" targetRef="validateData" />
+    <sequenceFlow id="flowToGateway" sourceRef="validateData" targetRef="validationGateway" />
+
+    <sequenceFlow id="flowToSubmitData" sourceRef="start" targetRef="submitData"/>
+
+    <!-- Success Path -->
+    <sequenceFlow id="successPath" sourceRef="validationGateway" targetRef="nextStage">
+      <conditionExpression>${execution.getVariable('submitDataValid') == true}</conditionExpression>
+    </sequenceFlow>
+
+    <!-- Failure Path -->
+    <sequenceFlow id="failurePath" sourceRef="validationGateway" targetRef="incrementTries">
+      <conditionExpression>${execution.getVariable('submitDataValid') == false}</conditionExpression>
+    </sequenceFlow>
+    
+    <!-- 5. Increment Attempt Count Script Task -->
+    <scriptTask id="incrementTries" name="Increment Attempt Count" scriptFormat="groovy">
+      <script>
+        <![CDATA[
+          def taskId = "submitData";
+          def currentAttempts = execution.getVariable(taskId + "AttemptCount") ?: 0;
+          execution.setVariable(taskId + "AttemptCount", currentAttempts + 1);
+        ]]>
+      </script>
+    </scriptTask>
+    
+    <!-- 6. Loop-back Flow -->
+    <sequenceFlow id="loopback" sourceRef="incrementTries" targetRef="submitData" />
+
+    <!-- Placeholder for next stage -->
+    <userTask id="nextStage" name="Next Stage" />
+
+  </process>
+
+</definitions>

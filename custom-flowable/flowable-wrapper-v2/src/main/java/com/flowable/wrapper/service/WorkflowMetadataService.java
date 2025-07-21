@@ -155,6 +155,7 @@ public class WorkflowMetadataService {
                     }
                     
                     log.debug("Task '{}' has candidate groups: {}", userTask.getId(), candidateGroups);
+                    log.info("DEBUG: UserTask '{}' has extensionElements: {}", userTask.getId(), userTask.getExtensionElements());
                     
                     // Determine which queue this task should go to
                     String assignedQueue = determineQueue(candidateGroups, candidateGroupMappings);
@@ -219,6 +220,7 @@ public class WorkflowMetadataService {
         
         try {
             // Read BPMN file from mounted directory
+            // TODO remove the hardcoded path
             Path filePath = Paths.get("/app/definitions", filename);
             if (!Files.exists(filePath)) {
                 throw new ResourceNotFoundException("BPMN file", filename);

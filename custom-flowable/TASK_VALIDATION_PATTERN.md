@@ -1,8 +1,10 @@
-# Task Validation Pattern - Design Guidelines
+# Task Validation Pattern - Design Guidelines (Script-Based)
 
 ## Overview
 
-This document describes the standard pattern for implementing task validation with rejection handling in our queue-based Flowable system. All engineers building workflows MUST follow this pattern to ensure consistent user experience and proper queue management.
+This document describes the standard, **code-free** pattern for implementing task validation with rejection handling in our queue-based Flowable system. All engineers building workflows MUST follow this pattern to ensure consistent user experience and proper queue management without writing or deploying custom Java code.
+
+Validation is performed using **Script Tasks** directly within the BPMN definition.
 
 ## Mental Model
 
@@ -14,121 +16,164 @@ User Task → Business Logic Decides → Create NEW Rejection Task
 
 ### Our Approach (Required Pattern)
 ```
-User Task → Validation → Same Task Loops Back if Failed
+User Task → Validation Script → Same Task Loops Back if Failed
 ```
-**Benefit**: Immediate feedback, same task context, better UX.
+**Benefit**: Immediate feedback, same task context, better UX, **no Java code required**.
 
 ## Core Concepts
 
 ### 1. Task Validation Flow
 
-Think of it like a quality control checkpoint:
+The flow uses a `scriptTask` instead of a `serviceTask` for validation.
 
 ```
-┌─────────────┐     ┌──────────────┐     ┌─────────────┐
-│  User Task  │────>│ Service Task │────>│  Gateway    │
-│ (Data Entry)│     │ (Validation) │     │  (Router)   │
-└─────────────┘     └──────────────┘     └──────┬──────┘
+┌─────────────┐     ┌────────────────┐     ┌─────────────┐
+│  User Task  │────>│  Script Task   │────>│  Gateway    │
+│ (Data Entry)│     │ (Validation)   │     │  (Router)   │
+└─────────────┘     └────────────────┘     └──────┬──────┘
        ↑                                         │ │
-       │                                         │ │ Rejected
-       └─────────────────────────────────────────┘ │
-                                                    │ Approved
-                                                    ↓
-                                              Next Stage
+       │ Rejected                                │ │
+       └────────────────────┬────────────────────┘ │
+                            │                      │ Approved
+┌───────────────────┐       │                      ↓
+│ Increment Tries   │<──────┘                Next Stage
+│ (Script Task)     │
+└───────────────────┘
 ```
 
 ### 2. Key Principles
 
-1. **Validation is Synchronous** - Happens immediately after task completion
-2. **Same Task Loops Back** - Failed validation returns to the SAME task definition
-3. **Context is Preserved** - User sees their previous input with error messages
-4. **Queue Remains Consistent** - Task reappears in the same queue
+1.  **Validation is Synchronous** - Happens immediately after task completion.
+2.  **Self-Contained Logic** - Validation rules are written in Groovy/Juel directly in the BPMN XML.
+3.  **Same Task Loops Back** - Failed validation returns to the SAME task definition.
+4.  **Context is Preserved** - User sees their previous input with error messages.
+5.  **Queue Remains Consistent** - Task reappears in the same queue.
 
 ## Implementation Requirements
 
 ### 1. BPMN Design Rules
 
 #### Required Elements
-- **User Task**: Must have a unique `id` (e.g., `submitExpenseReport`)
-- **Service Task**: Immediately follows user task for validation
-- **Exclusive Gateway**: Routes based on validation result
-- **Loop-back Flow**: Connects gateway back to user task on failure
+- **User Task**: Must have a unique `id` (e.g., `submitExpenseReport`).
+- **Script Task**: Immediately follows the user task for validation. Must be configured for `groovy`.
+- **Exclusive Gateway**: Routes based on the validation result.
+- **Loop-back Flow**: Connects the gateway back to the user task on failure.
+- **Increment Script Task**: A second, smaller script task on the failure path to increment the attempt counter.
 
 #### Required Variables
-Every validation service task MUST set:
+Every validation script task MUST set:
 ```
-- {taskId}Valid: boolean (e.g., task1Valid)
-- {taskId}ValidationError: string/list (e.g., task1ValidationError)
-- {taskId}AttemptCount: integer (e.g., task1AttemptCount)
+- {taskId}Valid: boolean (e.g., submitDataValid)
+- {taskId}ValidationError: string or list (e.g., submitDataValidationError)
+```
+The increment script task MUST set:
+```
+- {taskId}AttemptCount: integer (e.g., submitDataAttemptCount)
 ```
 
-### 2. BPMN Example Template
+### 2. BPMN Example Template (Code-Free)
+
+This is the standard pattern to be used.
 
 ```xml
 <process id="standardValidationPattern">
-  
-  <!-- User Task -->
-  <userTask id="submitData" name="Submit Data">
-    <extensionElements>
-      <!-- REQUIRED: Set candidate groups for queue mapping -->
-      <flowable:candidateGroups>level1-makers</flowable:candidateGroups>
-      
-      <!-- REQUIRED: Track attempt count -->
-      <flowable:taskListener event="create" 
-        class="com.flowable.wrapper.listeners.IncrementAttemptListener" />
-    </extensionElements>
+
+  <startEvent id="start"/>
+
+  <!-- 1. User Task -->
+  <userTask id="submitData" name="Submit Data" flowable:candidateGroups="level1-makers">
   </userTask>
-  
-  <!-- Validation Service Task -->
-  <serviceTask id="validateData" name="Validate Submission"
-    flowable:delegateExpression="${dataValidator}" />
-  
-  <!-- Routing Gateway -->
+
+  <!-- 2. Validation Script Task -->
+  <scriptTask id="validateData" name="Validate Submission" scriptFormat="groovy">
+    <script>
+      <![CDATA[
+        // REQUIRED: Follow naming convention for variables
+        def taskId = "submitData"; // Must match the User Task ID
+
+        // --- Start of User-Defined Validation Logic ---
+
+        def errors = new java.util.ArrayList();
+        
+        // Example 1: Check for presence of a variable
+        if (!execution.hasVariable("amount") || execution.getVariable("amount") == null) {
+          errors.add("Amount is a required field.");
+        } else {
+          // Example 2: Check for business rule
+          def amount = execution.getVariable("amount") as Integer;
+          if (amount > 5000) {
+            errors.add("Amount cannot exceed \$5,000.");
+          }
+        }
+
+        // Example 3: Check for required attachment (variable ending in '_resourceId')
+        if (!execution.hasVariable("receipt_resourceId")) {
+            errors.add("A receipt attachment is mandatory.");
+        }
+
+        // --- End of User-Defined Validation Logic ---
+
+        // REQUIRED: Set standard output variables
+        if (errors.isEmpty()) {
+          execution.setVariable(taskId + "Valid", true);
+          execution.setVariable(taskId + "ValidationError", ""); // Clear previous errors
+        } else {
+          execution.setVariable(taskId + "Valid", false);
+          execution.setVariable(taskId + "ValidationError", errors);
+        }
+      ]]>
+    </script>
+  </scriptTask>
+
+  <!-- 3. Routing Gateway -->
   <exclusiveGateway id="validationGateway" name="Is Valid?" />
-  
+
+  <!-- 4. Sequence Flows -->
+  <sequenceFlow id="flowToValidation" sourceRef="submitData" targetRef="validateData" />
+  <sequenceFlow id="flowToGateway" sourceRef="validateData" targetRef="validationGateway" />
+
+  <sequenceFlow id="flowToSubmitData" sourceRef="start" targetRef="submitData"/>
+
   <!-- Success Path -->
-  <sequenceFlow sourceRef="validationGateway" targetRef="nextStage">
-    <conditionExpression>${submitDataValid == true}</conditionExpression>
+  <sequenceFlow id="successPath" sourceRef="validationGateway" targetRef="nextStage">
+    <conditionExpression>${execution.getVariable('submitDataValid') == true}</conditionExpression>
+  </sequenceFlow>
+
+  <!-- Failure Path -->
+  <sequenceFlow id="failurePath" sourceRef="validationGateway" targetRef="incrementTries">
+    <conditionExpression>${execution.getVariable('submitDataValid') == false}</conditionExpression>
   </sequenceFlow>
   
-  <!-- REQUIRED: Failure Loop Back -->
-  <sequenceFlow sourceRef="validationGateway" targetRef="submitData">
-    <conditionExpression>${submitDataValid == false}</conditionExpression>
-  </sequenceFlow>
+  <!-- 5. Increment Attempt Count Script Task -->
+  <scriptTask id="incrementTries" name="Increment Attempt Count" scriptFormat="groovy">
+    <script>
+      <![CDATA[
+        def taskId = "submitData";
+        def currentAttempts = execution.getVariable(taskId + "AttemptCount") ?: 0;
+        execution.setVariable(taskId + "AttemptCount", currentAttempts + 1);
+      ]]>
+    </script>
+  </scriptTask>
   
+  <!-- 6. Loop-back Flow -->
+  <sequenceFlow id="loopback" sourceRef="incrementTries" targetRef="submitData" />
+
+  <!-- Placeholder for next stage -->
+  <userTask id="nextStage" name="Next Stage" />
+
 </process>
 ```
 
-### 3. Service Task Implementation
+### 3. Maker-Checker Pattern Example
 
-```java
-@Component
-public class DataValidator implements JavaDelegate {
-    
-    @Override
-    public void execute(DelegateExecution execution) {
-        // REQUIRED: Follow naming convention
-        String taskId = "submitData"; // Must match BPMN task ID
-        
-        // Get attempt count
-        Integer attemptCount = (Integer) execution.getVariable(taskId + "AttemptCount");
-        if (attemptCount == null) attemptCount = 0;
-        
-        // Perform validation
-        ValidationResult result = validate(execution.getVariables());
-        
-        // REQUIRED: Set standard variables
-        execution.setVariable(taskId + "Valid", result.isValid());
-        execution.setVariable(taskId + "ValidationError", result.getErrors());
-        execution.setVariable(taskId + "AttemptCount", attemptCount + 1);
-        
-        // Optional: Set additional context
-        if (!result.isValid()) {
-            execution.setVariable(taskId + "RejectedAt", Instant.now());
-            execution.setVariable(taskId + "RejectedBy", "SYSTEM");
-        }
-    }
-}
+To validate after both a maker and a checker, you simply duplicate the pattern.
+
+```
+Maker Task → Validate Maker Script → Gateway → Checker Task → Validate Checker Script → Gateway → ...
+   ↑                 |                     |      ↑                  |                      |
+   └----(loop)-------┘                     |      └-----(loop)--------┘                      |
+                                           |                                                |
+                                           └----------------(next)--------------------------┘
 ```
 
 ## Queue System Integration
@@ -136,10 +181,9 @@ public class DataValidator implements JavaDelegate {
 ### How Our System Detects Rejections
 
 When a task is completed, our system:
-
-1. Checks if the same `taskDefinitionKey` appears in active tasks
-2. Examines validation variables (`{taskId}Valid = false`)
-3. Returns appropriate response to the user
+1.  Checks if the process is still active and if the **next active task has the same ID** as the one just completed.
+2.  If so, it reads the `{taskId}Valid`, `{taskId}ValidationError`, and `{taskId}AttemptCount` variables.
+3.  It then returns a special API response indicating validation failure.
 
 ### API Response Pattern
 
@@ -156,100 +200,27 @@ When a task is completed, our system:
     "status": "VALIDATION_FAILED",
     "message": "Please correct the errors and resubmit",
     "validationErrors": [
-        "Amount exceeds limit of $5000",
-        "Receipt attachment required for amounts over $100"
+        "Amount cannot exceed $5,000.",
+        "A receipt attachment is mandatory."
     ],
     "attemptNumber": 2,
-    "retryTaskId": "task-456"
+    "retryTaskId": "task-456" // The ID of the new task instance
 }
 ```
-
-## Parallel Task Validation
-
-For workflows with parallel tasks that must all succeed:
-
-```
-Level 1:
-┌──────────┐     ┌──────────┐
-│  Task A  │     │  Task B  │
-└────┬─────┘     └────┬─────┘
-     │                │
-     ▼                ▼
-┌──────────┐     ┌──────────┐
-│Validate A│     │Validate B│
-└────┬─────┘     └────┬─────┘
-     │                │
-     ├──<loopback>────┤
-     │                │
-     └──────┬─────────┘
-            ▼
-      Join Gateway
-```
-
-### Rules for Parallel Validation:
-1. Each parallel branch has its own validation loop
-2. Join gateway waits for ALL branches to have `valid=true`
-3. Each task can fail/retry independently
-4. Use unique variable names per task (task1Valid, task2Valid)
-
-## Common Patterns
-
-### 1. Simple Validation
-- One task → One validation → Continue or retry
-
-### 2. Maker-Checker Pattern
-- Maker submits → Validation → Checker reviews → Validation → Next level
-
-### 3. Parallel Validation
-- Multiple tasks in parallel → Each validates independently → Join when all valid
-
-### 4. Multi-Level Validation
-- Level 1 validation (basic) → Level 2 validation (advanced) → Progressive checks
 
 ## Checklist for Engineers
 
 Before deploying a workflow, ensure:
 
-- [ ] Every user task that requires validation has a following service task
-- [ ] Service tasks set the required variables: `{taskId}Valid`, `{taskId}ValidationError`
-- [ ] Gateways have proper conditions checking the `Valid` variable
-- [ ] Loop-back sequence flows connect to the original task
-- [ ] Task IDs follow naming conventions
-- [ ] Candidate groups are set for queue mapping
-- [ ] Validation error messages are user-friendly
-- [ ] Attempt counters are implemented
-- [ ] Documentation includes validation rules
-
-## Error Messages Best Practices
-
-### Good Error Messages:
-- "Invoice amount $5,234 exceeds approval limit of $5,000"
-- "Missing required attachment: Receipt for expense"
-- "Invalid account number format. Expected: XXX-XXXXX-XX"
-
-### Bad Error Messages:
-- "Validation failed"
-- "Error in task"
-- "Invalid data"
-
-## Testing Guidelines
-
-1. Test the happy path (all validations pass)
-2. Test each validation failure independently
-3. Test multiple attempts (ensure counter increments)
-4. Test parallel task failures
-5. Verify error messages are helpful
-6. Confirm tasks reappear in correct queues
-
-## Migration Guide
-
-For existing workflows:
-1. Identify tasks that need validation
-2. Add service tasks after user tasks
-3. Add gateways with proper routing
-4. Update task services to set required variables
-5. Test thoroughly before deployment
+- [ ] Every user task requiring validation is followed by a `scriptTask`.
+- [ ] The validation `scriptTask` sets the `{taskId}Valid` and `{taskId}ValidationError` variables.
+- [ ] The gateway correctly checks the `{taskId}Valid` variable.
+- [ ] The failure path includes a `scriptTask` to increment `{taskId}AttemptCount`.
+- [ ] The loop-back flow connects from the incrementer back to the original user task.
+- [ ] Task IDs in the script match the actual `userTask` ID.
+- [ ] Candidate groups are set on the `userTask` for queue mapping.
+- [ ] Validation error messages are user-friendly.
 
 ---
 
-**Remember**: This pattern ensures users get immediate feedback and understand exactly what needs to be corrected. Following these guidelines creates a consistent, user-friendly experience across all our workflows.
+**Remember**: This pattern ensures users get immediate feedback and understand exactly what needs to be corrected, all without requiring any changes to the wrapper API's Java code.

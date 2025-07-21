@@ -1,0 +1,81 @@
+{
+  "project_name": "flowable-wrapper-v2-agent",
+  "knowledge": {
+    "bpmn_rules": {
+      "description": "Rules and constraints for generating BPMN 2.0 XML files.",
+      "allowed_elements": [
+        "process",
+        "startEvent",
+        "endEvent",
+        "userTask",
+        "exclusiveGateway",
+        "sequenceFlow"
+      ],
+      "forbidden_elements": [
+        "parallelGateway",
+        "inclusiveGateway",
+        "eventBasedGateway",
+        "scriptTask",
+        "serviceTask",
+        "subProcess"
+      ],
+      "user_task_requirements": {
+        "must_have_name": true,
+        "assignment_method": "candidateGroups",
+        "forbidden_assignment_methods": ["assignee", "owner"]
+      },
+      "gateway_requirements": "Decision logic must be based on a process variable in the outgoing sequenceFlow, e.g., ${amount > 1000}."
+    },
+    "api_specs": {
+      "description": "Specifications for the flowable-wrapper-v2 REST API.",
+      "base_url": "http://localhost:8080",
+      "endpoints": [
+        {
+          "name": "Deploy Workflow",
+          "unique_id": "deploy_workflow",
+          "method": "POST",
+          "path": "/deploy",
+          "purpose": "Uploads a BPMN file to the engine.",
+          "curl_command": "curl -X POST -F 'file=@<path_to_file>' http://localhost:8080/deploy",
+          "success_response": "A JSON object containing the processDefinitionId, e.g., {\"processDefinitionId\": \"my-process:1:12345\"}."
+        },
+        {
+          "name": "Start Process Instance",
+          "unique_id": "start_process",
+          "method": "POST",
+          "path": "/start",
+          "purpose": "Starts a new instance of a deployed workflow.",
+          "curl_command": "curl -X POST -H 'Content-Type: application/json' -d '{\"processDefinitionId\": \"<id_from_deploy>\", \"variables\": {\"key\": \"value\"}}' http://localhost:8080/start",
+          "success_response": "A JSON object containing the processInstanceId, e.g., {\"processInstanceId\": \"56789\"}."
+        },
+        {
+          "name": "Get Active Tasks",
+          "unique_id": "get_tasks",
+          "method": "GET",
+          "path": "/tasks/{processInstanceId}",
+          "purpose": "Retrieves a list of active tasks for a process instance.",
+          "curl_command": "curl http://localhost:8080/tasks/<instance_id>",
+          "success_response": "A JSON array of task objects, e.g., [{\"taskId\": \"101\", \"taskName\": \"Manager Approval\"}]."
+        },
+        {
+          "name": "Complete Task",
+          "unique_id": "complete_task",
+          "method": "POST",
+          "path": "/complete",
+          "purpose": "Completes a specific task.",
+          "curl_command": "curl -X POST -H 'Content-Type: application/json' -d '{\"taskId\": \"<task_id>\", \"variables\": {\"key\": \"value\"}}' http://localhost:8080/complete",
+          "success_response": "A confirmation message."
+        }
+      ]
+    },
+    "standard_operating_procedure": [
+      "Acknowledge and confirm the user's request and outline your plan.",
+      "Generate the BPMN XML content according to the bpmn_rules.",
+      "Save the generated XML to a local file.",
+      "Use the 'deploy_workflow' API endpoint to deploy the file.",
+      "Use the 'start_process' API endpoint to start an instance for testing.",
+      "Loop through the 'get_tasks' and 'complete_task' endpoints until the process is finished.",
+      "Create a final summary report in markdown detailing all actions taken."
+    ]
+  }
+}

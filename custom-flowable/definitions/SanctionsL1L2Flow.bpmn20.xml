@@ -1,0 +1,493 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<definitions xmlns="http://www.omg.org/spec/BPMN/20100524/MODEL"
+             xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+             xmlns:xsd="http://www.w3.org/2001/XMLSchema"
+             xmlns:flowable="http://flowable.org/bpmn"
+             typeLanguage="http://www.w3.org/2001/XMLSchema"
+             expressionLanguage="http://www.w3.org/1999/XPath"
+             targetNamespace="http://www.flowable.org/processdef">
+
+    <process id="sanctionsCaseManagement" name="Sanctions Case Management (L1 &amp; L2)" isExecutable="true">
+
+        <!--
+        ================================================================================
+        PROCESS START
+        ================================================================================
+        -->
+        <startEvent id="startEvent" name="Sanctions Case Created"/>
+
+        <sequenceFlow id="flow_start_to_l1_split" sourceRef="startEvent" targetRef="l1_parallel_split"/>
+
+        <!--
+        ================================================================================
+        LEVEL 1 - MAKER/CHECKER REVIEW
+        ================================================================================
+        -->
+
+        <parallelGateway id="l1_parallel_split" name="L1 Split (Maker/Checker)"/>
+
+        <sequenceFlow id="flow_l1_split_to_maker" sourceRef="l1_parallel_split" targetRef="l1_maker_review_task"/>
+        <sequenceFlow id="flow_l1_split_to_checker" sourceRef="l1_parallel_split" targetRef="l1_checker_review_task"/>
+
+        <!-- L1 Maker Path -->
+        <userTask id="l1_maker_review_task" name="Level 1 Maker Review" flowable:candidateGroups="level1-maker">
+            <documentation>
+                Review all matches for Case ID: ${caseId}.
+                Provide a decision (true_match / false_positive) and comments for every match.
+            </documentation>
+            <extensionElements>
+                <flowable:formProperty id="l1MakerDecisions" name="Level 1 Maker Decisions" type="string" required="true"/>
+            </extensionElements>
+        </userTask>
+        <sequenceFlow id="flow_l1_maker_to_validation" sourceRef="l1_maker_review_task" targetRef="l1_maker_validation_script"/>
+        <scriptTask id="l1_maker_validation_script" name="Validate L1 Maker Input" scriptFormat="groovy" flowable:autoStoreVariables="false">
+            <script>
+                <![CDATA[
+        println "INFO: [Validate L1 Maker Input] - Script started for caseId: " + execution.getVariable("caseId");
+        def matches = execution.getVariable("matches");
+        if (matches == null) {
+            println "ERROR: [Validate L1 Maker Input] - 'matches' variable is null. Throwing BpmnError.";
+            throw new org.flowable.engine.delegate.BpmnError("MISSING_DATA", "Process variable 'matches' is missing or empty.");
+        }
+
+        def decisions = execution.getVariable("l1MakerDecisions");
+        println "INFO: [Validate L1 Maker Input] - Received " + (decisions == null ? 0 : decisions.size()) + " decisions. Expected " + matches.size() + ".";
+
+        def validationError = null;
+        def allowedDecisions = ['true_match', 'false_positive'];
+
+        if (decisions == null || decisions.size() != matches.size()) {
+            validationError = "Input is incomplete. You must provide a decision for all " + matches.size() + " matches.";
+        } else {
+            for (int i = 0; i < decisions.size(); i++) {
+                def currentDecision = decisions[i].decision;
+                if (currentDecision == null || currentDecision.trim().isEmpty()) {
+                    validationError = "A decision is missing for at least one match.";
+                    break;
+                }
+                if (!allowedDecisions.contains(currentDecision)) {
+                    validationError = "Invalid decision value provided. Decisions must be 'true_match' or 'false_positive'.";
+                    break;
+                }
+            }
+        }
+
+        def validationPassed = (validationError == null);
+        execution.setVariable("l1MakerValidationPassed", validationPassed);
+        if (!validationPassed) {
+            execution.setVariable("l1MakerValidationError", validationError);
+            println "WARN: [Validate L1 Maker Input] - Validation FAILED: " + validationError;
+        } else {
+            println "INFO: [Validate L1 Maker Input] - Validation PASSED.";
+        }
+        ]]>
+            </script>
+        </scriptTask>
+        <sequenceFlow id="flow_l1_maker_validation_to_gate" sourceRef="l1_maker_validation_script" targetRef="l1_maker_validation_gate"/>
+        <exclusiveGateway id="l1_maker_validation_gate" name="L1 Maker Validation OK?"/>
+        <sequenceFlow id="flow_l1_maker_validation_fail" sourceRef="l1_maker_validation_gate" targetRef="l1_maker_review_task">
+            <conditionExpression xsi:type="tFormalExpression">${!l1MakerValidationPassed}</conditionExpression>
+        </sequenceFlow>
+        <sequenceFlow id="flow_l1_maker_validation_pass" sourceRef="l1_maker_validation_gate" targetRef="l1_maker_merge_script">
+            <conditionExpression xsi:type="tFormalExpression">${l1MakerValidationPassed}</conditionExpression>
+        </sequenceFlow>
+        <scriptTask id="l1_maker_merge_script" name="Merge L1 Maker Decisions" scriptFormat="groovy" flowable:autoStoreVariables="false">
+            <script>
+                <![CDATA[
+        println "INFO: [Merge L1 Maker Decisions] - Script started.";
+        def matches = execution.getVariable("matches");
+        if (matches == null) {
+            println "ERROR: [Merge L1 Maker Decisions] - 'matches' variable is null. Throwing BpmnError.";
+            throw new org.flowable.engine.delegate.BpmnError("MISSING_DATA", "Process variable 'matches' is missing or empty.");
+        }
+
+        def makerDecisions = execution.getVariable("l1MakerDecisions");
+        for (int i = 0; i < matches.size(); i++) {
+            matches[i].level1MakerDecision = makerDecisions[i].decision;
+            matches[i].level1MakerComment = makerDecisions[i].comment;
+        }
+        execution.setVariable("matches", matches);
+        println "INFO: [Merge L1 Maker Decisions] - Successfully merged L1 Maker decisions into 'matches' variable.";
+        ]]>
+            </script>
+        </scriptTask>
+        <sequenceFlow id="flow_l1_maker_merge_to_join" sourceRef="l1_maker_merge_script" targetRef="l1_parallel_join"/>
+
+        <!-- L1 Checker Path (Mirrors the Maker Path) -->
+        <userTask id="l1_checker_review_task" name="Level 1 Checker Review" flowable:candidateGroups="level1-checker">
+            <documentation>
+                Review all matches for Case ID: ${caseId}.
+                Provide a decision (true_match / false_positive) and comments for every match.
+            </documentation>
+            <extensionElements>
+                <flowable:formProperty id="l1CheckerDecisions" name="Level 1 Checker Decisions" type="string" required="true"/>
+            </extensionElements>
+        </userTask>
+        <sequenceFlow id="flow_l1_checker_to_validation" sourceRef="l1_checker_review_task" targetRef="l1_checker_validation_script"/>
+        <scriptTask id="l1_checker_validation_script" name="Validate L1 Checker Input" scriptFormat="groovy" flowable:autoStoreVariables="false">
+            <script>
+                <![CDATA[
+        println "INFO: [Validate L1 Checker Input] - Script started for caseId: " + execution.getVariable("caseId");
+        def matches = execution.getVariable("matches");
+        if (matches == null) {
+            println "ERROR: [Validate L1 Checker Input] - 'matches' variable is null. Throwing BpmnError.";
+            throw new org.flowable.engine.delegate.BpmnError("MISSING_DATA", "Process variable 'matches' is missing or empty.");
+        }
+
+        def decisions = execution.getVariable("l1CheckerDecisions");
+        println "INFO: [Validate L1 Checker Input] - Received " + (decisions == null ? 0 : decisions.size()) + " decisions. Expected " + matches.size() + ".";
+
+        def validationError = null;
+        def allowedDecisions = ['true_match', 'false_positive'];
+
+        if (decisions == null || decisions.size() != matches.size()) {
+            validationError = "Input is incomplete. You must provide a decision for all " + matches.size() + " matches.";
+        } else {
+            for (int i = 0; i < decisions.size(); i++) {
+                def currentDecision = decisions[i].decision;
+                if (currentDecision == null || currentDecision.trim().isEmpty()) {
+                    validationError = "A decision is missing for at least one match.";
+                    break;
+                }
+                if (!allowedDecisions.contains(currentDecision)) {
+                    validationError = "Invalid decision value provided. Decisions must be 'true_match' or 'false_positive'.";
+                    break;
+                }
+            }
+        }
+
+        def validationPassed = (validationError == null);
+        execution.setVariable("l1CheckerValidationPassed", validationPassed);
+        if (!validationPassed) {
+            execution.setVariable("l1CheckerValidationError", validationError);
+            println "WARN: [Validate L1 Checker Input] - Validation FAILED: " + validationError;
+        } else {
+            println "INFO: [Validate L1 Checker Input] - Validation PASSED.";
+        }
+        ]]>
+            </script>
+        </scriptTask>
+        <sequenceFlow id="flow_l1_checker_validation_to_gate" sourceRef="l1_checker_validation_script" targetRef="l1_checker_validation_gate"/>
+        <exclusiveGateway id="l1_checker_validation_gate" name="L1 Checker Validation OK?"/>
+        <sequenceFlow id="flow_l1_checker_validation_fail" sourceRef="l1_checker_validation_gate" targetRef="l1_checker_review_task">
+            <conditionExpression xsi:type="tFormalExpression">${!l1CheckerValidationPassed}</conditionExpression>
+        </sequenceFlow>
+        <sequenceFlow id="flow_l1_checker_validation_pass" sourceRef="l1_checker_validation_gate" targetRef="l1_checker_merge_script">
+            <conditionExpression xsi:type="tFormalExpression">${l1CheckerValidationPassed}</conditionExpression>
+        </sequenceFlow>
+        <scriptTask id="l1_checker_merge_script" name="Merge L1 Checker Decisions" scriptFormat="groovy" flowable:autoStoreVariables="false">
+            <script>
+                <![CDATA[
+        println "INFO: [Merge L1 Checker Decisions] - Script started.";
+        def matches = execution.getVariable("matches");
+        if (matches == null) {
+            println "ERROR: [Merge L1 Checker Decisions] - 'matches' variable is null. Throwing BpmnError.";
+            throw new org.flowable.engine.delegate.BpmnError("MISSING_DATA", "Process variable 'matches' is missing or empty.");
+        }
+
+        def checkerDecisions = execution.getVariable("l1CheckerDecisions");
+        for (int i = 0; i < matches.size(); i++) {
+            matches[i].level1CheckerDecision = checkerDecisions[i].decision;
+            matches[i].level1CheckerComment = checkerDecisions[i].comment;
+        }
+        execution.setVariable("matches", matches);
+        println "INFO: [Merge L1 Checker Decisions] - Successfully merged L1 Checker decisions into 'matches' variable.";
+        ]]>
+            </script>
+        </scriptTask>
+        <sequenceFlow id="flow_l1_checker_merge_to_join" sourceRef="l1_checker_merge_script" targetRef="l1_parallel_join"/>
+
+        <!-- L1 Join and Decision Logic -->
+        <parallelGateway id="l1_parallel_join" name="L1 Join"/>
+        <sequenceFlow id="flow_l1_join_to_decision_script" sourceRef="l1_parallel_join" targetRef="l1_decision_script"/>
+        <scriptTask id="l1_decision_script" name="Evaluate L1 Decisions" scriptFormat="groovy" flowable:autoStoreVariables="false">
+            <script>
+                <![CDATA[
+        println "INFO: [Evaluate L1 Decisions] - Script started.";
+        def matches = execution.getVariable("matches");
+        if (matches == null) {
+            println "ERROR: [Evaluate L1 Decisions] - 'matches' variable is null. Throwing BpmnError.";
+            throw new org.flowable.engine.delegate.BpmnError("MISSING_DATA", "Process variable 'matches' is missing or empty.");
+        }
+
+        boolean allTrueMatches = matches.every { match ->
+            return match.level1MakerDecision == "true_match" && match.level1CheckerDecision == "true_match"
+        };
+        execution.setVariable("autoToLevel2", allTrueMatches);
+        println "INFO: [Evaluate L1 Decisions] - Evaluation complete. autoToLevel2 = " + allTrueMatches;
+        ]]>
+            </script>
+        </scriptTask>
+        <sequenceFlow id="flow_l1_decision_to_gate" sourceRef="l1_decision_script" targetRef="l1_routing_gate"/>
+        <exclusiveGateway id="l1_routing_gate" name="Route to L2 or L1 Supervisor?"/>
+        <sequenceFlow id="flow_l1_route_to_supervisor" name="Escalate to Supervisor" sourceRef="l1_routing_gate" targetRef="l1_supervisor_task">
+            <conditionExpression xsi:type="tFormalExpression">${!autoToLevel2}</conditionExpression>
+        </sequenceFlow>
+
+        <userTask id="l1_supervisor_task" name="Level 1 Supervisor Review" flowable:candidateGroups="level1-supervisor">
+            <documentation>
+                Review L1 maker/checker decisions for Case ID: ${caseId}.
+                Decide whether to close the case or escalate to Level 2.
+            </documentation>
+            <extensionElements>
+                <flowable:formProperty id="l1SupervisorDecision" name="L1 Supervisor Decision" type="string" required="true"/>
+            </extensionElements>
+        </userTask>
+        <sequenceFlow id="flow_l1_supervisor_to_decision_gate" sourceRef="l1_supervisor_task" targetRef="l1_supervisor_decision_gate"/>
+
+        <exclusiveGateway id="l1_supervisor_decision_gate" name="L1 Supervisor Action?" default="flow_l1_supervisor_escalates_default">
+            <documentation>Decides the path based on supervisor input. Defaults to escalating if the input is not 'close'.</documentation>
+        </exclusiveGateway>
+        <sequenceFlow id="flow_l1_supervisor_closes" name="Close Case" sourceRef="l1_supervisor_decision_gate" targetRef="endEvent_closed_by_l1">
+            <conditionExpression xsi:type="tFormalExpression">${l1SupervisorDecision.equalsIgnoreCase('close')}</conditionExpression>
+        </sequenceFlow>
+        <sequenceFlow id="flow_l1_supervisor_escalates_default" name="Escalate to L2 (Default)" sourceRef="l1_supervisor_decision_gate" targetRef="prepare_for_l2_script"/>
+
+        <sequenceFlow id="flow_l1_route_to_l2" name="Auto-Route to L2" sourceRef="l1_routing_gate" targetRef="prepare_for_l2_script">
+            <conditionExpression xsi:type="tFormalExpression">${autoToLevel2}</conditionExpression>
+        </sequenceFlow>
+
+        <!--
+        ================================================================================
+        LEVEL 2 - PREPARATION AND SPLIT
+        ================================================================================
+        -->
+        <scriptTask id="prepare_for_l2_script" name="Prepare for Level 2" scriptFormat="groovy" flowable:autoStoreVariables="false">
+            <script>
+                <![CDATA[
+        println "INFO: [Prepare for Level 2] - Execution reached the L2 preparation step for caseId: " + execution.getVariable("caseId");
+        // This task acts as a synchronization point and provides a clear log entry.
+        ]]>
+            </script>
+        </scriptTask>
+        <sequenceFlow id="flow_prepare_l2_to_split" sourceRef="prepare_for_l2_script" targetRef="l2_parallel_split"/>
+
+        <parallelGateway id="l2_parallel_split" name="L2 Split (Maker/Checker)"/>
+        <sequenceFlow id="flow_l2_split_to_maker" sourceRef="l2_parallel_split" targetRef="l2_maker_review_task"/>
+        <sequenceFlow id="flow_l2_split_to_checker" sourceRef="l2_parallel_split" targetRef="l2_checker_review_task"/>
+
+        <!-- L2 Maker Path -->
+        <userTask id="l2_maker_review_task" name="Level 2 Maker Review" flowable:candidateGroups="level2-maker">
+            <documentation>Review all matches for Case ID: ${caseId} at Level 2.</documentation>
+            <extensionElements>
+                <flowable:formProperty id="l2MakerDecisions" name="Level 2 Maker Decisions" type="string" required="true"/>
+            </extensionElements>
+        </userTask>
+        <sequenceFlow id="flow_l2_maker_to_validation" sourceRef="l2_maker_review_task" targetRef="l2_maker_validation_script"/>
+        <scriptTask id="l2_maker_validation_script" name="Validate L2 Maker Input" scriptFormat="groovy" flowable:autoStoreVariables="false">
+            <script>
+                <![CDATA[
+        println "INFO: [Validate L2 Maker Input] - Script started for caseId: " + execution.getVariable("caseId");
+        def matches = execution.getVariable("matches");
+        if (matches == null) {
+            println "ERROR: [Validate L2 Maker Input] - 'matches' variable is null. Throwing BpmnError.";
+            throw new org.flowable.engine.delegate.BpmnError("MISSING_DATA", "Process variable 'matches' is missing or empty.");
+        }
+
+        def decisions = execution.getVariable("l2MakerDecisions");
+        println "INFO: [Validate L2 Maker Input] - Received " + (decisions == null ? 0 : decisions.size()) + " decisions. Expected " + matches.size() + ".";
+
+        def validationError = null;
+        def allowedDecisions = ['true_match', 'false_positive'];
+
+        if (decisions == null || decisions.size() != matches.size()) {
+            validationError = "Input is incomplete. You must provide a decision for all " + matches.size() + " matches.";
+        } else {
+            for (int i = 0; i < decisions.size(); i++) {
+                def currentDecision = decisions[i].decision;
+                if (currentDecision == null || currentDecision.trim().isEmpty()) {
+                    validationError = "A decision is missing for at least one match.";
+                    break;
+                }
+                if (!allowedDecisions.contains(currentDecision)) {
+                    validationError = "Invalid decision value provided. Decisions must be 'true_match' or 'false_positive'.";
+                    break;
+                }
+            }
+        }
+
+        def validationPassed = (validationError == null);
+        execution.setVariable("l2MakerValidationPassed", validationPassed);
+        if (!validationPassed) {
+            execution.setVariable("l2MakerValidationError", validationError);
+            println "WARN: [Validate L2 Maker Input] - Validation FAILED: " + validationError;
+        } else {
+            println "INFO: [Validate L2 Maker Input] - Validation PASSED.";
+        }
+        ]]>
+            </script>
+        </scriptTask>
+        <sequenceFlow id="flow_l2_maker_validation_to_gate" sourceRef="l2_maker_validation_script" targetRef="l2_maker_validation_gate"/>
+        <exclusiveGateway id="l2_maker_validation_gate" name="L2 Maker Validation OK?"/>
+        <sequenceFlow id="flow_l2_maker_validation_fail" sourceRef="l2_maker_validation_gate" targetRef="l2_maker_review_task">
+            <conditionExpression xsi:type="tFormalExpression">${!l2MakerValidationPassed}</conditionExpression>
+        </sequenceFlow>
+        <sequenceFlow id="flow_l2_maker_validation_pass" sourceRef="l2_maker_validation_gate" targetRef="l2_maker_merge_script">
+            <conditionExpression xsi:type="tFormalExpression">${l2MakerValidationPassed}</conditionExpression>
+        </sequenceFlow>
+        <scriptTask id="l2_maker_merge_script" name="Merge L2 Maker Decisions" scriptFormat="groovy" flowable:autoStoreVariables="false">
+            <script>
+                <![CDATA[
+        println "INFO: [Merge L2 Maker Decisions] - Script started.";
+        def matches = execution.getVariable("matches");
+        if (matches == null) {
+            println "ERROR: [Merge L2 Maker Decisions] - 'matches' variable is null. Throwing BpmnError.";
+            throw new org.flowable.engine.delegate.BpmnError("MISSING_DATA", "Process variable 'matches' is missing or empty.");
+        }
+
+        def makerDecisions = execution.getVariable("l2MakerDecisions");
+        for (int i = 0; i < matches.size(); i++) {
+            matches[i].level2MakerDecision = makerDecisions[i].decision;
+            matches[i].level2MakerComment = makerDecisions[i].comment;
+        }
+        execution.setVariable("matches", matches);
+        println "INFO: [Merge L2 Maker Decisions] - Successfully merged L2 Maker decisions.";
+        ]]>
+            </script>
+        </scriptTask>
+        <sequenceFlow id="flow_l2_maker_merge_to_join" sourceRef="l2_maker_merge_script" targetRef="l2_parallel_join"/>
+
+        <!-- L2 Checker Path -->
+        <userTask id="l2_checker_review_task" name="Level 2 Checker Review" flowable:candidateGroups="level2-checker">
+            <documentation>Review all matches for Case ID: ${caseId} at Level 2.</documentation>
+            <extensionElements>
+                <flowable:formProperty id="l2CheckerDecisions" name="Level 2 Checker Decisions" type="string" required="true"/>
+            </extensionElements>
+        </userTask>
+        <sequenceFlow id="flow_l2_checker_to_validation" sourceRef="l2_checker_review_task" targetRef="l2_checker_validation_script"/>
+        <scriptTask id="l2_checker_validation_script" name="Validate L2 Checker Input" scriptFormat="groovy" flowable:autoStoreVariables="false">
+            <script>
+                <![CDATA[
+        println "INFO: [Validate L2 Checker Input] - Script started for caseId: " + execution.getVariable("caseId");
+        def matches = execution.getVariable("matches");
+        if (matches == null) {
+            println "ERROR: [Validate L2 Checker Input] - 'matches' variable is null. Throwing BpmnError.";
+            throw new org.flowable.engine.delegate.BpmnError("MISSING_DATA", "Process variable 'matches' is missing or empty.");
+        }
+
+        def decisions = execution.getVariable("l2CheckerDecisions");
+        println "INFO: [Validate L2 Checker Input] - Received " + (decisions == null ? 0 : decisions.size()) + " decisions. Expected " + matches.size() + ".";
+
+        def validationError = null;
+        def allowedDecisions = ['true_match', 'false_positive'];
+
+        if (decisions == null || decisions.size() != matches.size()) {
+            validationError = "Input is incomplete. You must provide a decision for all " + matches.size() + " matches.";
+        } else {
+            for (int i = 0; i < decisions.size(); i++) {
+                def currentDecision = decisions[i].decision;
+                if (currentDecision == null || currentDecision.trim().isEmpty()) {
+                    validationError = "A decision is missing for at least one match.";
+                    break;
+                }
+                if (!allowedDecisions.contains(currentDecision)) {
+                    validationError = "Invalid decision value provided. Decisions must be 'true_match' or 'false_positive'.";
+                    break;
+                }
+            }
+        }
+        def validationPassed = (validationError == null);
+        execution.setVariable("l2CheckerValidationPassed", validationPassed);
+        if (!validationPassed) {
+            execution.setVariable("l2CheckerValidationError", validationError);
+            println "WARN: [Validate L2 Checker Input] - Validation FAILED: " + validationError;
+        } else {
+            println "INFO: [Validate L2 Checker Input] - Validation PASSED.";
+        }
+        ]]>
+            </script>
+        </scriptTask>
+        <sequenceFlow id="flow_l2_checker_validation_to_gate" sourceRef="l2_checker_validation_script" targetRef="l2_checker_validation_gate"/>
+        <exclusiveGateway id="l2_checker_validation_gate" name="L2 Checker Validation OK?"/>
+        <sequenceFlow id="flow_l2_checker_validation_fail" sourceRef="l2_checker_validation_gate" targetRef="l2_checker_review_task">
+            <conditionExpression xsi:type="tFormalExpression">${!l2CheckerValidationPassed}</conditionExpression>
+        </sequenceFlow>
+        <sequenceFlow id="flow_l2_checker_validation_pass" sourceRef="l2_checker_validation_gate" targetRef="l2_checker_merge_script">
+            <conditionExpression xsi:type="tFormalExpression">${l2CheckerValidationPassed}</conditionExpression>
+        </sequenceFlow>
+        <scriptTask id="l2_checker_merge_script" name="Merge L2 Checker Decisions" scriptFormat="groovy" flowable:autoStoreVariables="false">
+            <script>
+                <![CDATA[
+        println "INFO: [Merge L2 Checker Decisions] - Script started.";
+        def matches = execution.getVariable("matches");
+        if (matches == null) {
+            println "ERROR: [Merge L2 Checker Decisions] - 'matches' variable is null. Throwing BpmnError.";
+            throw new org.flowable.engine.delegate.BpmnError("MISSING_DATA", "Process variable 'matches' is missing or empty.");
+        }
+
+        def checkerDecisions = execution.getVariable("l2CheckerDecisions");
+        for (int i = 0; i < matches.size(); i++) {
+            matches[i].level2CheckerDecision = checkerDecisions[i].decision;
+            matches[i].level2CheckerComment = checkerDecisions[i].comment;
+        }
+        execution.setVariable("matches", matches);
+        println "INFO: [Merge L2 Checker Decisions] - Successfully merged L2 Checker decisions.";
+        ]]>
+            </script>
+        </scriptTask>
+        <sequenceFlow id="flow_l2_checker_merge_to_join" sourceRef="l2_checker_merge_script" targetRef="l2_parallel_join"/>
+
+        <!-- L2 Join and Supervisor Review -->
+        <parallelGateway id="l2_parallel_join" name="L2 Join"/>
+        <sequenceFlow id="flow_l2_join_to_supervisor" sourceRef="l2_parallel_join" targetRef="l2_supervisor_task"/>
+
+        <userTask id="l2_supervisor_task" name="Level 2 Supervisor Review" flowable:candidateGroups="level2-supervisor">
+            <documentation>
+                Review L2 maker/checker decisions for Case ID: ${caseId}.
+                Make a final decision to close the case as a True Positive or False Positive.
+            </documentation>
+            <extensionElements>
+                <flowable:formProperty id="l2SupervisorDecision" name="Level 2 Supervisor Decision" type="string" required="true"/>
+                <flowable:formProperty id="l2SupervisorComments" name="Level 2 Supervisor Comments" type="string" required="false"/>
+            </extensionElements>
+        </userTask>
+        <sequenceFlow id="flow_l2_supervisor_to_record_script" sourceRef="l2_supervisor_task" targetRef="record_final_decision_script"/>
+
+        <scriptTask id="record_final_decision_script" name="Record Final Case Decision" scriptFormat="groovy" flowable:autoStoreVariables="false">
+            <script>
+                <![CDATA[
+        println "INFO: [Record Final Case Decision] - Script started.";
+        def decision = execution.getVariable("l2SupervisorDecision");
+        def comments = execution.getVariable("l2SupervisorComments");
+
+        println "INFO: [Record Final Case Decision] - Supervisor decision: " + decision;
+
+        def finalStatus = "";
+        if ("true_positive".equalsIgnoreCase(decision)) {
+            finalStatus = "Closed - True Positive";
+        } else if ("false_positive".equalsIgnoreCase(decision)) {
+            finalStatus = "Closed - False Positive";
+        } else {
+            println "ERROR: [Record Final Case Decision] - Invalid supervisor decision. Throwing BpmnError.";
+            throw new org.flowable.engine.delegate.BpmnError("INVALID_FINAL_DECISION", "L2 Supervisor decision was not 'true_positive' or 'false_positive'. Actual value was: " + decision);
+        }
+
+        execution.setVariable("finalCaseStatus", finalStatus);
+        execution.setVariable("finalCaseComment", comments);
+        println "INFO: [Record Final Case Decision] - Final status set to: " + finalStatus;
+        ]]>
+            </script>
+        </scriptTask>
+        <sequenceFlow id="flow_record_script_to_decision_gate" sourceRef="record_final_decision_script" targetRef="l2_final_decision_gate"/>
+
+        <exclusiveGateway id="l2_final_decision_gate" name="L2 Final Decision?" default="flow_l2_close_true_positive_default">
+            <documentation>Decides the final path. Defaults to True Positive as a safe option if the input is ambiguous.</documentation>
+        </exclusiveGateway>
+        <sequenceFlow id="flow_l2_close_false_positive" name="False Positive" sourceRef="l2_final_decision_gate" targetRef="endEvent_false_positive">
+            <conditionExpression xsi:type="tFormalExpression">${l2SupervisorDecision.equalsIgnoreCase('false_positive')}</conditionExpression>
+        </sequenceFlow>
+        <sequenceFlow id="flow_l2_close_true_positive_default" name="True Positive (Default)" sourceRef="l2_final_decision_gate" targetRef="endEvent_true_positive"/>
+
+
+        <!--
+        ================================================================================
+        PROCESS END
+        ================================================================================
+        -->
+        <endEvent id="endEvent_closed_by_l1" name="Case Closed by L1 Supervisor"/>
+        <endEvent id="endEvent_true_positive" name="Case Closed - True Positive"/>
+        <endEvent id="endEvent_false_positive" name="Case Closed - False Positive"/>
+
+    </process>
+
+</definitions>

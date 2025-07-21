@@ -8,7 +8,10 @@ import com.flowable.wrapper.exception.WorkflowException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.flowable.engine.RuntimeService;
+import org.flowable.engine.FormService;
 import org.flowable.engine.runtime.ProcessInstance;
+import org.flowable.engine.form.FormProperty;
+import org.flowable.engine.form.TaskFormData;
 import org.flowable.task.api.Task;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -26,6 +29,7 @@ public class TaskService {
     
     private final org.flowable.engine.TaskService flowableTaskService;
     private final RuntimeService runtimeService;
+    private final FormService formService;
     private final QueueTaskService queueTaskService;
     
     /**
@@ -72,70 +76,108 @@ public class TaskService {
     public TaskCompletionResponse completeTask(String taskId, CompleteTaskRequest request) throws WorkflowException {
         // Get task from queue_tasks
         QueueTaskResponse queueTask = queueTaskService.getQueueTask(taskId);
-        
+        String taskDefinitionKey = queueTask.getTaskDefinitionKey(); // Capture the original task definition key
+
         // Verify task is assigned
         if (queueTask.getAssignee() == null) {
-            throw new WorkflowException("TASK_NOT_ASSIGNED", 
+            throw new WorkflowException("TASK_NOT_ASSIGNED",
                 "Task must be claimed before completion");
         }
-        
+
         // Verify user is authorized (if userId provided)
-        if (request != null && request.getUserId() != null && 
+        if (request != null && request.getUserId() != null &&
             !request.getUserId().equals(queueTask.getAssignee())) {
-            throw new WorkflowException("UNAUTHORIZED", 
+            throw new WorkflowException("UNAUTHORIZED",
                 "User " + request.getUserId() + " is not authorized to complete this task");
         }
-        
+
         String processInstanceId = queueTask.getProcessInstanceId();
-        Map<String, Object> variables = request != null && request.getVariables() != null ? 
+        Map<String, Object> variables = request != null && request.getVariables() != null ?
             request.getVariables() : new HashMap<>();
-        
+
         // Complete in Flowable
         try {
             flowableTaskService.complete(taskId, variables);
         } catch (Exception e) {
-            throw new WorkflowException("COMPLETE_FAILED", 
+            throw new WorkflowException("COMPLETE_FAILED",
                 "Failed to complete task: " + e.getMessage(), e);
         }
-        
-        // Update queue_tasks table
+
+        // Update queue_tasks table for the completed task
         Instant completedAt = Instant.now();
         queueTaskService.completeTask(taskId);
-        
+
         log.info("Task {} completed by user {}", taskId, queueTask.getAssignee());
-        
-        // Check if process is still active and populate next task
+
+        // Check if process is still active
         ProcessInstance processInstance = runtimeService.createProcessInstanceQuery()
                 .processInstanceId(processInstanceId)
                 .singleResult();
-                
-        TaskCompletionResponse response = TaskCompletionResponse.builder()
+
+        if (processInstance != null) {
+            // Process is still active, populate next tasks in queue
+            queueTaskService.populateQueueTasksForProcessInstance(
+                processInstanceId,
+                queueTask.getProcessDefinitionKey()
+            );
+
+            // Get the newly created active tasks
+            List<QueueTaskResponse> nextTasks = queueTaskService.getTasksByProcessInstance(processInstanceId);
+
+            // Check for validation failure (loopback)
+            for (QueueTaskResponse nextTask : nextTasks) {
+                if (nextTask.getTaskDefinitionKey().equals(taskDefinitionKey)) {
+                    // Validation failed, the same task has reappeared
+                    log.warn("Validation failed for task definition key: {}. Task {} has looped back.", taskDefinitionKey, taskId);
+
+                    Map<String, Object> processVariables = runtimeService.getVariables(processInstanceId);
+                    Object validationError = processVariables.get(taskDefinitionKey + "ValidationError");
+                    Object attemptCount = processVariables.get(taskDefinitionKey + "AttemptCount");
+
+                    return TaskCompletionResponse.builder()
+                            .status("VALIDATION_FAILED")
+                            .message("Please correct the errors and resubmit")
+                            .validationErrors(validationError)
+                            .attemptNumber(attemptCount instanceof Integer ? (Integer) attemptCount : 1)
+                            .retryTaskId(nextTask.getTaskId())
+                            .processInstanceId(processInstanceId)
+                            .completedAt(completedAt)
+                            .completedBy(queueTask.getAssignee())
+                            .processActive(true)
+                            .build();
+                }
+            }
+
+            // If no validation failure, return standard success response with next task info
+            if (!nextTasks.isEmpty()) {
+                QueueTaskResponse nextTask = nextTasks.get(0);
+                return TaskCompletionResponse.builder()
+                        .status("COMPLETED")
+                        .message("Task completed successfully")
+                        .taskId(taskId)
+                        .taskName(queueTask.getTaskName())
+                        .processInstanceId(processInstanceId)
+                        .completedAt(completedAt)
+                        .completedBy(queueTask.getAssignee())
+                        .processActive(true)
+                        .nextTaskId(nextTask.getTaskId())
+                        .nextTaskName(nextTask.getTaskName())
+                        .nextTaskQueue(nextTask.getQueueName())
+                        .build();
+            }
+        }
+
+        // Process is complete
+        return TaskCompletionResponse.builder()
+                .status("COMPLETED")
+                .message("Task completed successfully and process has finished")
                 .taskId(taskId)
                 .taskName(queueTask.getTaskName())
                 .processInstanceId(processInstanceId)
                 .completedAt(completedAt)
                 .completedBy(queueTask.getAssignee())
-                .processActive(processInstance != null)
+                .processActive(false)
                 .build();
-                
-        if (processInstance != null) {
-            // Process is still active, populate next tasks in queue
-            queueTaskService.populateQueueTasksForProcessInstance(
-                processInstanceId, 
-                queueTask.getProcessDefinitionKey()
-            );
-            
-            // Get the next task info
-            List<QueueTaskResponse> nextTasks = queueTaskService.getTasksByProcessInstance(processInstanceId);
-            if (!nextTasks.isEmpty()) {
-                QueueTaskResponse nextTask = nextTasks.get(0);
-                response.setNextTaskId(nextTask.getTaskId());
-                response.setNextTaskName(nextTask.getTaskName());
-                response.setNextTaskQueue(nextTask.getQueueName());
-            }
-        }
-        
-        return response;
     }
     
     /**
@@ -207,6 +249,34 @@ public class TaskService {
         // Get task variables (form data)
         Map<String, Object> taskVariables = flowableTaskService.getVariables(taskId);
         response.setFormData(taskVariables);
+        
+        // Get form properties from BPMN definition
+        try {
+            TaskFormData taskFormData = formService.getTaskFormData(taskId);
+            if (taskFormData != null) {
+                List<FormProperty> formProperties = taskFormData.getFormProperties();
+                Map<String, Object> formPropertiesMap = new HashMap<>();
+                for (FormProperty property : formProperties) {
+                    Map<String, Object> propertyData = new HashMap<>();
+                    propertyData.put("id", property.getId());
+                    propertyData.put("name", property.getName());
+                    propertyData.put("type", property.getType() != null ? property.getType().getName() : "string");
+                    propertyData.put("required", property.isRequired());
+                    propertyData.put("readable", property.isReadable());
+                    propertyData.put("writable", property.isWritable());
+                    if (property.getValue() != null) {
+                        propertyData.put("value", property.getValue());
+                    }
+                    formPropertiesMap.put(property.getId(), propertyData);
+                }
+                response.setFormProperties(formPropertiesMap);
+            } else {
+                response.setFormProperties(new HashMap<>());
+            }
+        } catch (Exception e) {
+            log.warn("Could not retrieve form properties for task {}: {}", taskId, e.getMessage());
+            response.setFormProperties(new HashMap<>());
+        }
         
         // Get process variables
         Map<String, Object> processVariables = runtimeService.getVariables(queueTask.getProcessInstanceId());

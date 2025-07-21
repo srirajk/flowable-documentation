@@ -61,6 +61,9 @@ public class TaskDetailResponse {
     @Schema(description = "Form data/variables for the task")
     private Map<String, Object> formData;
     
+    @Schema(description = "Form properties definition from BPMN")
+    private Map<String, Object> formProperties;
+    
     @Schema(description = "Process variables")
     private Map<String, Object> processVariables;
     

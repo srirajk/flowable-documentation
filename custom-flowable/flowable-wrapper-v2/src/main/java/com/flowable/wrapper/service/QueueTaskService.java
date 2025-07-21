@@ -93,7 +93,7 @@ public class QueueTaskService {
                 }
             }
         }
-        
+
         // If not found in mappings, return null
         return null;
     }

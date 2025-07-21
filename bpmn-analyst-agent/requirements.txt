@@ -1,0 +1,49 @@
+# BPMN Validator Agent - Phase 1 Requirements
+# Core LLM and MCP dependencies
+
+# You'll need to adapt these based on your actual LlmAgent framework
+# This is based on the pattern you showed in your example
+
+# MCP (Model Context Protocol) support
+# Assuming you have a custom framework or using one of these:
+# - Google ADK framework from your project
+# - Custom LlmAgent implementation
+
+# Core Python dependencies
+requests>=2.31.0
+pydantic>=2.0.0
+python-dotenv>=1.0.0
+
+# XML processing for BPMN files
+lxml>=4.9.0
+xmltodict>=0.13.0
+
+# JSON processing and utilities
+jsonschema>=4.17.0
+
+# Path and file utilities (built-in but listed for clarity)
+pathlib2>=2.3.7
+
+# Optional: If using OpenAI/Anthropic as fallback
+# openai>=1.0.0
+# anthropic>=0.18.0
+
+# Development and testing
+pytest>=7.0.0
+black>=23.0.0
+flake8>=6.0.0
+
+# Ollama client (if needed for direct API calls)
+ollama>=0.1.0
+
+# MCP server dependencies (these are typically installed via npx)
+# @modelcontextprotocol/server-memory
+# @modelcontextprotocol/server-filesystem
+
+# Note: The main LlmAgent framework and MCPToolset classes
+# appear to be part of your custom Google ADK project at:
+# /Users/srirajkadimisetty/projects/uv-projects/adk-first-project
+#
+# You may need to add that project to your Python path or
+# install it as a local package:
+# pip install -e /Users/srirajkadimisetty/projects/uv-projects/adk-first-project
