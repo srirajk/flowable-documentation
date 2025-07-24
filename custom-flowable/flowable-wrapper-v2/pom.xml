@@ -24,6 +24,7 @@
         <flowable.version>7.1.0</flowable.version>
         <springdoc.version>2.3.0</springdoc.version>
         <hypersistence.version>3.9.10</hypersistence.version>
+        <cerbos.version>0.16.0</cerbos.version>
     </properties>
 
     <dependencies>
@@ -100,6 +101,13 @@
             <artifactId>spring-boot-devtools</artifactId>
             <scope>runtime</scope>
             <optional>true</optional>
+        </dependency>
+
+
+        <dependency>
+            <groupId>dev.cerbos</groupId>
+            <artifactId>cerbos-sdk-java</artifactId>
+            <version>${cerbos.version}</version>
         </dependency>
 
         <!-- Test dependencies -->

@@ -16,15 +16,18 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import jakarta.servlet.http.HttpServletRequest;
+import com.flowable.wrapper.cerbos.service.CerbosService;
 
 @RestController
-@RequestMapping("/api/workflow-metadata")
+@RequestMapping("/api/{businessAppName}/workflow-metadata")
 @RequiredArgsConstructor
 @Slf4j
 @Tag(name = "Workflow Metadata", description = "APIs for managing workflow metadata and deployments")
 public class WorkflowMetadataController {
     
     private final WorkflowMetadataService workflowMetadataService;
+    private final CerbosService cerbosService;
     
     @PostMapping("/register")
     @Operation(summary = "Register workflow metadata", 
@@ -35,9 +38,25 @@ public class WorkflowMetadataController {
         @ApiResponse(responseCode = "500", description = "Internal server error")
     })
     public ResponseEntity<WorkflowMetadataResponse> registerWorkflowMetadata(
-            @Valid @RequestBody RegisterWorkflowMetadataRequest request) throws WorkflowException {
+            @Parameter(description = "Business application name", required = true)
+            @PathVariable String businessAppName,
+            @Valid @RequestBody RegisterWorkflowMetadataRequest request,
+            HttpServletRequest httpRequest) throws WorkflowException {
         
-        log.info("Registering workflow metadata: {}", request.getProcessDefinitionKey());
+        String userId = httpRequest.getHeader("X-User-Id");
+        log.info("Registering workflow metadata: {} in business app: {} by user: {}", 
+                request.getProcessDefinitionKey(), businessAppName, userId);
+        
+        // Cerbos authorization check
+        boolean isAuthorized = cerbosService.isAuthorizedForWorkflowManagement(
+                userId, "register", request.getProcessDefinitionKey(), businessAppName);
+        
+        if (!isAuthorized) {
+            log.warn("User {} not authorized to register workflow {} in business app {}", 
+                    userId, request.getProcessDefinitionKey(), businessAppName);
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        
         WorkflowMetadataResponse response = workflowMetadataService.registerWorkflowMetadata(request);
         
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
@@ -53,9 +72,25 @@ public class WorkflowMetadataController {
         @ApiResponse(responseCode = "500", description = "Internal server error")
     })
     public ResponseEntity<WorkflowMetadataResponse> deployWorkflow(
-            @Valid @RequestBody DeployWorkflowRequest request) throws WorkflowException {
+            @Parameter(description = "Business application name", required = true)
+            @PathVariable String businessAppName,
+            @Valid @RequestBody DeployWorkflowRequest request,
+            HttpServletRequest httpRequest) throws WorkflowException {
         
-        log.info("Deploying workflow: {}", request.getProcessDefinitionKey());
+        String userId = httpRequest.getHeader("X-User-Id");
+        log.info("Deploying workflow: {} in business app: {} by user: {}", 
+                request.getProcessDefinitionKey(), businessAppName, userId);
+        
+        // Cerbos authorization check
+        boolean isAuthorized = cerbosService.isAuthorizedForWorkflowManagement(
+                userId, "deploy", request.getProcessDefinitionKey(), businessAppName);
+        
+        if (!isAuthorized) {
+            log.warn("User {} not authorized to deploy workflow {} in business app {}", 
+                    userId, request.getProcessDefinitionKey(), businessAppName);
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        
         WorkflowMetadataResponse response = workflowMetadataService.deployWorkflow(request);
         
         return ResponseEntity.ok(response);
@@ -69,10 +104,26 @@ public class WorkflowMetadataController {
         @ApiResponse(responseCode = "404", description = "Workflow metadata not found")
     })
     public ResponseEntity<WorkflowMetadataResponse> getWorkflowMetadata(
+            @Parameter(description = "Business application name", required = true)
+            @PathVariable String businessAppName,
             @Parameter(description = "Process definition key", required = true)
-            @PathVariable String processDefinitionKey) {
+            @PathVariable String processDefinitionKey,
+            HttpServletRequest httpRequest) {
         
-        log.info("Getting workflow metadata for process: {}", processDefinitionKey);
+        String userId = httpRequest.getHeader("X-User-Id");
+        log.info("Getting workflow metadata for process: {} in business app: {} by user: {}", 
+                processDefinitionKey, businessAppName, userId);
+        
+        // Cerbos authorization check
+        boolean isAuthorized = cerbosService.isAuthorizedForWorkflowManagement(
+                userId, "view", processDefinitionKey, businessAppName);
+        
+        if (!isAuthorized) {
+            log.warn("User {} not authorized to view workflow {} in business app {}", 
+                    userId, processDefinitionKey, businessAppName);
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        
         WorkflowMetadataResponse response = workflowMetadataService.getWorkflowMetadata(processDefinitionKey);
         
         return ResponseEntity.ok(response);
@@ -88,10 +139,26 @@ public class WorkflowMetadataController {
         @ApiResponse(responseCode = "500", description = "Internal server error")
     })
     public ResponseEntity<WorkflowMetadataResponse> deployWorkflowFromFile(
+            @Parameter(description = "Business application name", required = true)
+            @PathVariable String businessAppName,
             @RequestParam String processDefinitionKey,
-            @RequestParam String filename) throws WorkflowException {
+            @RequestParam String filename,
+            HttpServletRequest httpRequest) throws WorkflowException {
         
-        log.info("Deploying workflow from file: {} for process: {}", filename, processDefinitionKey);
+        String userId = httpRequest.getHeader("X-User-Id");
+        log.info("Deploying workflow from file: {} for process: {} in business app: {} by user: {}", 
+                filename, processDefinitionKey, businessAppName, userId);
+        
+        // Cerbos authorization check
+        boolean isAuthorized = cerbosService.isAuthorizedForWorkflowManagement(
+                userId, "deploy", processDefinitionKey, businessAppName);
+        
+        if (!isAuthorized) {
+            log.warn("User {} not authorized to deploy workflow {} in business app {}", 
+                    userId, processDefinitionKey, businessAppName);
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        
         WorkflowMetadataResponse response = workflowMetadataService.deployWorkflowFromFile(processDefinitionKey, filename);
         
         return ResponseEntity.ok(response);

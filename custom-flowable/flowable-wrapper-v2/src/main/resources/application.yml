@@ -3,7 +3,7 @@ spring:
     name: flowable-wrapper-v2
   
   datasource:
-    url: jdbc:postgresql://localhost:5432/flowable_wrapper
+    url: jdbc:postgresql://localhost:5430/flowable_wrapper
     username: flowable
     password: flowable
     driver-class-name: org.postgresql.Driver
@@ -25,6 +25,15 @@ spring:
           lob:
             non_contextual_creation: true
     show-sql: false
+    defer-datasource-initialization: true
+  
+  sql:
+    init:
+      mode: always
+      data-locations: classpath:db/data-new.sql
+      schema-locations: classpath:db/schema.sql
+      continue-on-error: false
+      separator: ";"
 
 server:
   port: 8090

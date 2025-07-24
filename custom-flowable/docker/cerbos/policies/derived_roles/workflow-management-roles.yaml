@@ -1,0 +1,22 @@
+---
+apiVersion: "api.cerbos.dev/v1"
+description: |-
+  Derived roles for workflow management operations
+derivedRoles:
+  name: workflow_management_derived_roles
+  definitions:
+    - name: business_app_member_deployer
+      parentRoles: ["deployer"]
+      condition:
+        match:
+          expr: request.resource.attr.businessApp in request.principal.attr.businessApps
+    - name: business_app_member_business_user
+      parentRoles: ["business-user"]
+      condition:
+        match:
+          expr: request.resource.attr.businessApp in request.principal.attr.businessApps
+    - name: business_app_member_workflow_admin
+      parentRoles: ["workflow-admin"]
+      condition:
+        match:
+          expr: request.resource.attr.businessApp in request.principal.attr.businessApps

@@ -33,6 +33,9 @@ public class WorkflowMetadataResponse {
     @Schema(description = "Version number")
     private Integer version;
     
+    @Schema(description = "Business application name")
+    private String businessAppName;
+    
     @Schema(description = "Candidate group to queue mappings")
     private Map<String, String> candidateGroupMappings;
     

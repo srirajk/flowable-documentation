@@ -40,6 +40,10 @@ public class WorkflowMetadata {
     @Builder.Default
     private Integer version = 1;
     
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "business_app_id", nullable = false)
+    private BusinessApplication businessApplication;
+    
     @Type(JsonType.class)
     @Column(name = "candidate_group_mappings", columnDefinition = "jsonb", nullable = false)
     private Map<String, String> candidateGroupMappings;  // candidateGroup -> queueName

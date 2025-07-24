@@ -4,6 +4,7 @@ import com.flowable.wrapper.entity.WorkflowMetadata;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
+import java.util.List;
 import java.util.Optional;
 
 @Repository
@@ -14,4 +15,8 @@ public interface WorkflowMetadataRepository extends JpaRepository<WorkflowMetada
     Optional<WorkflowMetadata> findByProcessDefinitionKeyAndActiveTrue(String processDefinitionKey);
     
     boolean existsByProcessDefinitionKey(String processDefinitionKey);
+    
+    List<WorkflowMetadata> findByBusinessApplicationBusinessAppNameAndActiveTrue(String businessAppName);
+    
+    List<WorkflowMetadata> findByBusinessApplicationIdAndActiveTrue(Long businessAppId);
 }

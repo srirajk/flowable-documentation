@@ -1,0 +1,17 @@
+apiVersion: "api.cerbos.dev/v1"
+resourcePolicy:
+  resource: "workflow-management-derived-testing"
+  version: "default"
+  importDerivedRoles: ["workflow_management_derived_roles"]
+  rules:
+    - actions: ["register", "deploy", "view"]
+      effect: EFFECT_ALLOW
+      derivedRoles: ["business_app_member_workflow_admin"]
+
+    - actions: ["deploy", "view"]
+      effect: EFFECT_ALLOW
+      derivedRoles: ["business_app_member_deployer"]
+
+    - actions: ["view"]
+      effect: EFFECT_ALLOW
+      derivedRoles: ["business_app_member_business_user"]

@@ -1,0 +1,36 @@
+# 🔐 Cerbos Resource Policy for Workflow Management
+# This policy controls access to workflow definitions.
+# The primary condition for any access is that the user must be a member
+# of the business application the workflow belongs to.
+
+apiVersion: "api.cerbos.dev/v1"
+resourcePolicy:
+  # The kind of resource this policy applies to.
+  resource: "workflow-management"
+  version: "default"
+  # Rules define who can perform which actions.
+  # They are only evaluated if the principal has the required derived role.
+  rules:
+    # The 'workflow-admin' role has full access.
+    - actions: ["register", "deploy", "view"]
+      roles: ["workflow-admin"]
+      condition:
+        match:
+          expr: request.resource.attr.businessApp in request.principal.attr.businessApps
+      effect: EFFECT_ALLOW
+
+    # The 'deployer' role can deploy, register and view workflows.
+    - actions: ["deploy", "register", "view"]
+      roles: ["deployer"]
+      condition:
+        match:
+          expr: request.resource.attr.businessApp in request.principal.attr.businessApps
+      effect: EFFECT_ALLOW
+
+    # The 'business-user' role has view-only access.
+    - actions: ["view"]
+      roles: ["business-user"]
+      condition:
+        match:
+          expr: request.resource.attr.businessApp in request.principal.attr.businessApps
+      effect: EFFECT_ALLOW

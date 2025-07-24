@@ -16,11 +16,12 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
+import jakarta.servlet.http.HttpServletRequest;
 
 import java.util.List;
 
 @RestController
-@RequestMapping("/api/tasks")
+@RequestMapping("/api/{businessAppName}/tasks")
 @RequiredArgsConstructor
 @Slf4j
 @Tag(name = "Tasks", description = "APIs for task management and queue operations")
@@ -36,12 +37,17 @@ public class TaskController {
         @ApiResponse(responseCode = "404", description = "Queue not found")
     })
     public ResponseEntity<List<QueueTaskResponse>> getTasksByQueue(
+            @Parameter(description = "Business application name", required = true)
+            @PathVariable String businessAppName,
             @Parameter(description = "Queue name", required = true)
             @PathVariable String queueName,
             @Parameter(description = "Include only unassigned tasks")
-            @RequestParam(required = false, defaultValue = "false") boolean unassignedOnly) {
+            @RequestParam(required = false, defaultValue = "false") boolean unassignedOnly,
+            HttpServletRequest httpRequest) {
         
-        log.info("Getting tasks for queue: {}, unassignedOnly: {}", queueName, unassignedOnly);
+        String userId = httpRequest.getHeader("X-User-Id");
+        log.info("Getting tasks for queue: {} in business app: {}, unassignedOnly: {} by user: {}", 
+                queueName, businessAppName, unassignedOnly, userId);
         List<QueueTaskResponse> tasks = taskService.getTasksByQueue(queueName, unassignedOnly);
         
         return ResponseEntity.ok(tasks);
@@ -54,10 +60,12 @@ public class TaskController {
         @ApiResponse(responseCode = "200", description = "Tasks retrieved successfully")
     })
     public ResponseEntity<List<QueueTaskResponse>> getMyTasks(
-            @Parameter(description = "User ID", required = true)
-            @RequestParam String userId) {
+            @Parameter(description = "Business application name", required = true)
+            @PathVariable String businessAppName,
+            HttpServletRequest httpRequest) {
         
-        log.info("Getting tasks for user: {}", userId);
+        String userId = httpRequest.getHeader("X-User-Id");
+        log.info("Getting tasks for user: {} in business app: {}", userId, businessAppName);
         List<QueueTaskResponse> tasks = taskService.getTasksByAssignee(userId);
         
         return ResponseEntity.ok(tasks);
@@ -71,10 +79,15 @@ public class TaskController {
         @ApiResponse(responseCode = "404", description = "Task not found")
     })
     public ResponseEntity<TaskDetailResponse> getTaskDetails(
+            @Parameter(description = "Business application name", required = true)
+            @PathVariable String businessAppName,
             @Parameter(description = "Task ID", required = true)
-            @PathVariable String taskId) throws WorkflowException {
+            @PathVariable String taskId,
+            HttpServletRequest httpRequest) throws WorkflowException {
         
-        log.info("Getting task details for task: {}", taskId);
+        String userId = httpRequest.getHeader("X-User-Id");
+        log.info("Getting task details for task: {} in business app: {} by user: {}", 
+                taskId, businessAppName, userId);
         TaskDetailResponse taskDetails = taskService.getTaskDetails(taskId);
         
         return ResponseEntity.ok(taskDetails);
@@ -89,12 +102,14 @@ public class TaskController {
         @ApiResponse(responseCode = "404", description = "Task not found")
     })
     public ResponseEntity<QueueTaskResponse> claimTask(
+            @Parameter(description = "Business application name", required = true)
+            @PathVariable String businessAppName,
             @Parameter(description = "Task ID", required = true)
             @PathVariable String taskId,
-            @Parameter(description = "User ID", required = true)
-            @RequestParam String userId) throws WorkflowException {
+            HttpServletRequest httpRequest) throws WorkflowException {
         
-        log.info("User {} claiming task: {}", userId, taskId);
+        String userId = httpRequest.getHeader("X-User-Id");
+        log.info("User {} claiming task: {} in business app: {}", userId, taskId, businessAppName);
         QueueTaskResponse task = taskService.claimTask(taskId, userId);
         
         return ResponseEntity.ok(task);
@@ -110,11 +125,15 @@ public class TaskController {
         @ApiResponse(responseCode = "403", description = "User not authorized to complete this task")
     })
     public ResponseEntity<TaskCompletionResponse> completeTask(
+            @Parameter(description = "Business application name", required = true)
+            @PathVariable String businessAppName,
             @Parameter(description = "Task ID", required = true)
             @PathVariable String taskId,
-            @Valid @RequestBody(required = false) CompleteTaskRequest request) throws WorkflowException {
+            @Valid @RequestBody(required = false) CompleteTaskRequest request,
+            HttpServletRequest httpRequest) throws WorkflowException {
         
-        log.info("Completing task: {}", taskId);
+        String userId = httpRequest.getHeader("X-User-Id");
+        log.info("Completing task: {} in business app: {} by user: {}", taskId, businessAppName, userId);
         TaskCompletionResponse response = taskService.completeTask(taskId, request);
         
         return ResponseEntity.ok(response);
@@ -128,10 +147,14 @@ public class TaskController {
         @ApiResponse(responseCode = "404", description = "Task not found")
     })
     public ResponseEntity<QueueTaskResponse> unclaimTask(
+            @Parameter(description = "Business application name", required = true)
+            @PathVariable String businessAppName,
             @Parameter(description = "Task ID", required = true)
-            @PathVariable String taskId) throws WorkflowException {
+            @PathVariable String taskId,
+            HttpServletRequest httpRequest) throws WorkflowException {
         
-        log.info("Unclaiming task: {}", taskId);
+        String userId = httpRequest.getHeader("X-User-Id");
+        log.info("Unclaiming task: {} in business app: {} by user: {}", taskId, businessAppName, userId);
         QueueTaskResponse task = taskService.unclaimTask(taskId);
         
         return ResponseEntity.ok(task);
@@ -146,10 +169,15 @@ public class TaskController {
         @ApiResponse(responseCode = "404", description = "Queue not found")
     })
     public ResponseEntity<QueueTaskResponse> getNextTaskFromQueue(
+            @Parameter(description = "Business application name", required = true)
+            @PathVariable String businessAppName,
             @Parameter(description = "Queue name", required = true)
-            @PathVariable String queueName) {
+            @PathVariable String queueName,
+            HttpServletRequest httpRequest) {
         
-        log.info("Getting next available task from queue: {}", queueName);
+        String userId = httpRequest.getHeader("X-User-Id");
+        log.info("Getting next available task from queue: {} in business app: {} by user: {}", 
+                queueName, businessAppName, userId);
         QueueTaskResponse nextTask = taskService.getNextTaskFromQueue(queueName);
         
         if (nextTask == null) {

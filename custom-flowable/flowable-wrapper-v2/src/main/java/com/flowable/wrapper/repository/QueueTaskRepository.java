@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.stereotype.Repository;
 
 import java.util.List;
+import java.util.Optional;
 
 @Repository
 public interface QueueTaskRepository extends JpaRepository<QueueTask, String> {
@@ -30,5 +31,11 @@ public interface QueueTaskRepository extends JpaRepository<QueueTask, String> {
     
     // Find unassigned tasks by queue with pagination
     Page<QueueTask> findByQueueNameAndStatusAndAssigneeIsNull(String queueName, TaskStatus status, Pageable pageable);
+    
+    // Find task by task ID (for Cerbos integration)
+    Optional<QueueTask> findByTaskId(String taskId);
+    
+    // Find all tasks by process instance ID (for Cerbos integration)
+    List<QueueTask> findByProcessInstanceId(String processInstanceId);
     
 }

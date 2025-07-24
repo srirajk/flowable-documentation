@@ -3,10 +3,12 @@ package com.flowable.wrapper.service;
 import com.flowable.wrapper.dto.request.DeployWorkflowRequest;
 import com.flowable.wrapper.dto.request.RegisterWorkflowMetadataRequest;
 import com.flowable.wrapper.dto.response.WorkflowMetadataResponse;
+import com.flowable.wrapper.entity.BusinessApplication;
 import com.flowable.wrapper.entity.WorkflowMetadata;
 import com.flowable.wrapper.exception.ResourceNotFoundException;
 import com.flowable.wrapper.exception.WorkflowException;
 import com.flowable.wrapper.model.TaskQueueMapping;
+import com.flowable.wrapper.repository.BusinessApplicationRepository;
 import com.flowable.wrapper.repository.WorkflowMetadataRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -36,6 +38,7 @@ import java.util.Map;
 public class WorkflowMetadataService {
     
     private final WorkflowMetadataRepository workflowMetadataRepository;
+    private final BusinessApplicationRepository businessApplicationRepository;
     private final RepositoryService repositoryService;
     
     /**
@@ -57,11 +60,16 @@ public class WorkflowMetadataService {
                 "At least one candidate group to queue mapping is required");
         }
         
+        // Get business application
+        BusinessApplication businessApp = businessApplicationRepository.findByBusinessAppName(request.getBusinessAppName())
+                .orElseThrow(() -> new ResourceNotFoundException("Business Application", request.getBusinessAppName()));
+        
         // Create and save workflow metadata
         WorkflowMetadata metadata = WorkflowMetadata.builder()
                 .processDefinitionKey(request.getProcessDefinitionKey())
                 .processName(request.getProcessName())
                 .description(request.getDescription())
+                .businessApplication(businessApp)
                 .candidateGroupMappings(request.getCandidateGroupMappings())
                 .metadata(request.getMetadata())
                 .build();
@@ -264,6 +272,7 @@ public class WorkflowMetadataService {
                 .processName(metadata.getProcessName())
                 .description(metadata.getDescription())
                 .version(metadata.getVersion())
+                .businessAppName(metadata.getBusinessApplication().getBusinessAppName())
                 .candidateGroupMappings(metadata.getCandidateGroupMappings())
                 .taskQueueMappings(metadata.getTaskQueueMappings())
                 .metadata(metadata.getMetadata())
@@ -284,6 +293,7 @@ public class WorkflowMetadataService {
                 .processName(metadata.getProcessName())
                 .description(metadata.getDescription())
                 .version(metadata.getVersion())
+                .businessAppName(metadata.getBusinessApplication().getBusinessAppName())
                 .candidateGroupMappings(metadata.getCandidateGroupMappings())
                 .taskQueueMappings(metadata.getTaskQueueMappings())
                 .metadata(metadata.getMetadata())

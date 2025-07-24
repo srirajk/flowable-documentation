@@ -1,0 +1,45 @@
+-- BUSINESS APPLICATIONS
+INSERT INTO business_applications (business_app_name, description, metadata, is_active, created_at, updated_at) VALUES
+                                                                                                                    ('Sanctions-Management', 'Level 1 and Level 2 sanctions case management workflow',
+                                                                                                                     '{"processDefinitionKey": "sanctionsCaseManagement", "version": "1.0", "owner": "compliance-team"}', true, NOW(), NOW()),
+                                                                                                                    ('Expense-Reimbursement', 'Employee expense reimbursement approval workflow',
+                                                                                                                     '{"processDefinitionKey": "expenseReimbursement", "version": "2.0", "owner": "finance-team"}', true, NOW(), NOW()),
+                                                                                                                    ('Vacation-Request', 'Employee vacation request approval workflow',
+                                                                                                                     '{"processDefinitionKey": "vacationRequest", "version": "1.5", "owner": "hr-team"}', true, NOW(), NOW())
+ON CONFLICT (business_app_name) DO NOTHING;
+
+-- BUSINESS APP ROLES
+INSERT INTO business_app_roles (business_app_id, role_name, role_display_name, description, metadata, is_active, created_at, updated_at) VALUES
+                                                                                                                                             ((SELECT id FROM business_applications WHERE business_app_name = 'Sanctions-Management'), 'level1-maker', 'Level 1 Maker', 'Can review and make decisions on Level 1 sanctions cases', '{"permissions": ["view", "claim", "complete"], "level": "L1"}', true, NOW(), NOW()),
+                                                                                                                                             ((SELECT id FROM business_applications WHERE business_app_name = 'Sanctions-Management'), 'level1-checker', 'Level 1 Checker', 'Can review and validate Level 1 maker decisions', '{"permissions": ["view", "claim", "complete"], "level": "L1"}', true, NOW(), NOW()),
+                                                                                                                                             ((SELECT id FROM business_applications WHERE business_app_name = 'Sanctions-Management'), 'level1-supervisor', 'Level 1 Supervisor', 'Can review disagreements and escalate to Level 2', '{"permissions": ["view", "claim", "complete", "escalate"], "level": "L1"}', true, NOW(), NOW()),
+                                                                                                                                             ((SELECT id FROM business_applications WHERE business_app_name = 'Sanctions-Management'), 'level2-maker', 'Level 2 Maker', 'Can review and make decisions on Level 2 sanctions cases', '{"permissions": ["view", "claim", "complete"], "level": "L2"}', true, NOW(), NOW()),
+                                                                                                                                             ((SELECT id FROM business_applications WHERE business_app_name = 'Sanctions-Management'), 'level2-checker', 'Level 2 Checker', 'Can review and validate Level 2 maker decisions', '{"permissions": ["view", "claim", "complete"], "level": "L2"}', true, NOW(), NOW()),
+                                                                                                                                             ((SELECT id FROM business_applications WHERE business_app_name = 'Sanctions-Management'), 'level2-supervisor', 'Level 2 Supervisor', 'Can make final decisions on sanctions cases', '{"permissions": ["view", "claim", "complete", "finalize"], "level": "L2"}', true, NOW(), NOW()),
+                                                                                                                                             ((SELECT id FROM business_applications WHERE business_app_name = 'Sanctions-Management'), 'workflow-admin', 'Workflow Administrator', 'Can manage workflow deployments and configurations', '{"permissions": ["deploy", "manage", "admin"], "level": "ADMIN"}', true, NOW(), NOW())
+ON CONFLICT (business_app_id, role_name) DO NOTHING;
+
+-- USERS
+INSERT INTO users (id, username, email, first_name, last_name, is_active, attributes, created_at, updated_at) VALUES
+                                                                                                                  ('alice.johnson', 'alice.johnson', 'alice.johnson@company.com', 'Alice', 'Johnson', true,
+                                                                                                                   '{"department": "compliance", "region": "US", "level": "L1", "costCenter": "CC001"}', NOW(), NOW()),
+                                                                                                                  ('bob.smith', 'bob.smith', 'bob.smith@company.com', 'Bob', 'Smith', true,
+                                                                                                                   '{"department": "compliance", "region": "US", "level": "L1", "costCenter": "CC001", "manager": "eve.martinez"}', NOW(), NOW()),
+                                                                                                                  ('carol.davis', 'carol.davis', 'carol.davis@company.com', 'Carol', 'Davis', true,
+                                                                                                                   '{"department": "risk", "region": "US", "level": "L2", "costCenter": "CC002", "clearanceLevel": "HIGH"}', NOW(), NOW()),
+                                                                                                                  ('david.wilson', 'david.wilson', 'david.wilson@company.com', 'David', 'Wilson', true,
+                                                                                                                   '{"department": "risk", "region": "EU", "level": "L2", "costCenter": "CC003", "timezone": "CET"}', NOW(), NOW()),
+                                                                                                                  ('eve.martinez', 'eve.martinez', 'eve.martinez@company.com', 'Eve', 'Martinez', true,
+                                                                                                                   '{"department": "it", "region": "US", "level": "ADMIN", "costCenter": "CC004", "isAdmin": true}', NOW(), NOW())
+ON CONFLICT (id) DO NOTHING;
+
+-- USER ROLE ASSIGNMENTS
+INSERT INTO user_business_app_roles (user_id, business_app_role_id, is_active) VALUES
+                                                                                   ('alice.johnson', (SELECT r.id FROM business_app_roles r JOIN business_applications a ON r.business_app_id = a.id WHERE a.business_app_name = 'Sanctions-Management' AND r.role_name = 'level1-maker'), true),
+                                                                                   ('alice.johnson', (SELECT r.id FROM business_app_roles r JOIN business_applications a ON r.business_app_id = a.id WHERE a.business_app_name = 'Sanctions-Management' AND r.role_name = 'level1-checker'), true),
+                                                                                   ('bob.smith', (SELECT r.id FROM business_app_roles r JOIN business_applications a ON r.business_app_id = a.id WHERE a.business_app_name = 'Sanctions-Management' AND r.role_name = 'level1-supervisor'), true),
+                                                                                   ('carol.davis', (SELECT r.id FROM business_app_roles r JOIN business_applications a ON r.business_app_id = a.id WHERE a.business_app_name = 'Sanctions-Management' AND r.role_name = 'level2-maker'), true),
+                                                                                   ('carol.davis', (SELECT r.id FROM business_app_roles r JOIN business_applications a ON r.business_app_id = a.id WHERE a.business_app_name = 'Sanctions-Management' AND r.role_name = 'level2-checker'), true),
+                                                                                   ('david.wilson', (SELECT r.id FROM business_app_roles r JOIN business_applications a ON r.business_app_id = a.id WHERE a.business_app_name = 'Sanctions-Management' AND r.role_name = 'level2-supervisor'), true),
+                                                                                   ('eve.martinez', (SELECT r.id FROM business_app_roles r JOIN business_applications a ON r.business_app_id = a.id WHERE a.business_app_name = 'Sanctions-Management' AND r.role_name = 'workflow-admin'), true)
+ON CONFLICT (user_id, business_app_role_id) DO NOTHING

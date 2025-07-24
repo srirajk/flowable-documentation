@@ -25,6 +25,10 @@ public class RegisterWorkflowMetadataRequest {
     @Schema(description = "Human-readable name for the workflow", example = "Simple Approval Process")
     private String processName;
     
+    @NotBlank(message = "Business application name is required")
+    @Schema(description = "Business application this workflow belongs to", example = "Sanctions-Management")
+    private String businessAppName;
+    
     @Schema(description = "Description of the workflow", example = "Basic approval workflow for testing")
     private String description;
     
