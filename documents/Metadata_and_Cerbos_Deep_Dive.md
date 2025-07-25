@@ -2,11 +2,167 @@
 
 This document provides a detailed analysis of how different types of metadata within the Flowable Wrapper are collected and transformed into a rich authorization context for Cerbos. Understanding this flow is critical to writing effective authorization policies.
 
-## 1. The Goal: Building a Rich Authorization Context
+## 1. Understanding the Three Levels of Metadata
+
+Before diving into Cerbos integration, it's essential to understand the three distinct levels of metadata that power our authorization system:
+
+### Business Application Metadata
+**What it is**: High-level configuration about business applications and their capabilities.
+
+**Source**: `business_applications` table and related configuration
+**Scope**: Applies to entire business domains
+**Examples**:
+- Business App: "Sanctions-Management", "Procurement", "HR-Workflows"  
+- Description: "Level 1 and Level 2 sanctions case management workflow"
+- Owner: "compliance-team", "finance-team"
+- Active status, version information
+
+**Purpose**: Defines the business context and boundaries for all workflows within an application.
+
+```json
+{
+  "businessAppMetadata": {
+    "id": 1,
+    "name": "Sanctions-Management", 
+    "description": "Level 1 and Level 2 sanctions case management workflow",
+    "owner": "compliance-team",
+    "version": "1.0",
+    "isActive": true
+  }
+}
+```
+
+### Workflow Metadata  
+**What it is**: Configuration about specific workflow types and their task routing rules.
+
+**Source**: `workflow_metadata` table and task queue mappings
+**Scope**: Applies to all instances of a specific workflow type
+**Examples**:
+- Process Definition Key: "sanctionsCaseManagement", "expenseApproval"
+- Task Queue Mappings: Which tasks go to which queues
+- Candidate Group Mappings: Role-to-queue assignments
+- SLA definitions, categories, deployment information
+
+**Purpose**: Defines how tasks are routed, what roles can access them, and workflow-level policies.
+
+```json
+{
+  "workflowMetadata": {
+    "id": 1,
+    "processDefinitionKey": "sanctionsCaseManagement",
+    "taskQueueMappings": [
+      {
+        "taskId": "l1_maker_review_task",
+        "queue": "level1-queue", 
+        "candidateGroups": ["level1-maker"]
+      }
+    ],
+    "version": 1,
+    "deploymentId": "abc-123"
+  }
+}
+```
+
+### Process Instance Metadata
+**What it is**: Live, dynamic data about a specific running workflow instance.
+
+**Source**: Flowable engine variables, task states, execution context
+**Scope**: Applies to one specific workflow execution
+**Examples**:
+- Process Variables: caseId, customerName, amount, riskLevel
+- Task States: Who worked on what tasks, when they were completed
+- Current Task: Which task is active, who it's assigned to
+- Execution State: Is process active, suspended, completed
+
+**Purpose**: Provides the real-time business data and context for authorization decisions.
+
+```json
+{
+  "processInstanceId": "12b23432-6989-11f0-a69a-8a52b726ab7d",
+  "processVariables": {
+    "caseId": "SC002",
+    "customerName": "Jane Smith", 
+    "amount": 250000.0,
+    "riskLevel": "HIGH"
+  },
+  "currentTask": {
+    "taskDefinitionKey": "l1_maker_review_task",
+    "queue": "level1-queue",
+    "assignee": "us-l1-operator-1"
+  },
+  "taskStates": {
+    "l1_maker_review_task": {
+      "assignee": "us-l1-operator-1",
+      "status": "CLAIMED",
+      "createdAt": "2025-07-25T18:56:29Z"
+    }
+  }
+}
+```
+
+### How These Three Levels Work Together in Authorization
+
+**Hierarchical Context**: Business App → Workflow → Process Instance
+- **Business App**: "Am I authorized to work in Sanctions-Management?"
+- **Workflow**: "Can I access sanctionsCaseManagement workflows?" 
+- **Process Instance**: "Can I claim this specific task for customer Jane Smith?"
+
+**Authorization Granularity**: Each level provides different policy controls
+- **Business App Level**: Department access, regional restrictions
+- **Workflow Level**: Role-based task access, queue permissions
+- **Process Instance Level**: Four-Eyes enforcement, business rule validation
+
+### Critical Distinction: Entitlements vs Business Rules
+
+**Entitlements (User-Based Authorization)**:
+- **What it is**: "Can this user perform this action?" 
+- **Examples**: Role-based access, queue permissions, regional restrictions
+- **Policy Focus**: User attributes, roles, departmental access
+- **Cerbos Implementation**: Principal-based conditions using `P.attr.*`
+
+**Business Rules (Workflow Transition Logic)**:
+- **What it is**: "Should this workflow transition happen based on data?"
+- **Examples**: Amount thresholds, risk level escalations, SLA violations
+- **Policy Focus**: Process variables, business data validation
+- **Cerbos Implementation**: Resource-based conditions using `R.attr.processVariables.*`
+
+**Example - Entitlement Policy**:
+```yaml
+# User-based: Can user claim tasks in this queue?
+- actions: ["claim_task"]
+  roles: ["level1-operator"] 
+  condition:
+    match:
+      all:
+        - expr: request.resource.attr.currentTask.queue in request.principal.attr.queues
+        - expr: request.resource.attr.businessApp in request.principal.attr.businessApps
+```
+
+**Example - Business Rule Policy**:
+```yaml
+# Business logic: High-risk cases require L2 escalation regardless of user
+- actions: ["complete_task"]
+  effect: EFFECT_DENY
+  condition:
+    match:
+      all:
+        - expr: request.resource.attr.processVariables.riskLevel == "HIGH"
+        - expr: request.resource.attr.processVariables.amount > 100000
+        - expr: request.resource.attr.currentTask.taskDefinitionKey == "l1_final_decision"
+  # This prevents L1 users from closing high-risk cases, forces L2 escalation
+```
+
+**Why This Separation Matters**:
+- **Entitlements**: Change when users change roles/departments
+- **Business Rules**: Change when business policies change (compliance, risk management)
+- **Policy Maintenance**: Different teams manage different policy types
+- **Audit Requirements**: Entitlements vs business rule violations have different compliance implications
+
+## 2. The Goal: Building a Rich Authorization Context
 
 Every time an authorization check is made, the `CerbosService` acts as an orchestrator to build a comprehensive request object. This object contains two main parts: the `Principal` (the "Who") and the `Resource` (the "What"). The effectiveness of your Cerbos policies is directly proportional to the quality and depth of the metadata you provide in these objects.
 
-## 2. The `Principal`: Who is the User?
+## 3. The `Principal`: Who is the User?
 
 The `Principal` object represents the user performing the action. It's constructed by the `CerbosService` by fetching data from the user management tables.
 
@@ -50,7 +206,7 @@ This rich `Principal` metadata allows you to write powerful, attribute-based pol
       expr: "P.attr.approval_limit >= R.attr.processVariables.amount"
   ```
 
-## 3. The `Resource`: What is being acted on?
+## 4. The `Resource`: What is being acted on?
 
 The `Resource` object is where the system's flexibility truly shines. It represents the entity being accessed (a workflow, a task, a queue) and is populated with a deep set of metadata from multiple sources.
 
@@ -138,7 +294,7 @@ The `R` variable in a Cerbos policy refers to this Resource object. This is wher
         expr: "R.attr.createRequest.amount > P.attr.spending_limit"
   ```
 
-## 4. How the Cerbos Policy Folder Structure Relates
+## 5. How the Cerbos Policy Folder Structure Relates
 
 The `Resource.kind` field in the authorization request is dynamically generated, often as `businessAppName::processDefinitionKey`. This `kind` directly determines which policy file Cerbos will use.
 
