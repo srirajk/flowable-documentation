@@ -1,5 +1,6 @@
 package com.flowable.wrapper.controller;
 
+import com.flowable.wrapper.cerbos.service.CerbosService;
 import com.flowable.wrapper.dto.request.CompleteTaskRequest;
 import com.flowable.wrapper.dto.response.QueueTaskResponse;
 import com.flowable.wrapper.dto.response.TaskCompletionResponse;
@@ -14,6 +15,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import jakarta.servlet.http.HttpServletRequest;
@@ -27,13 +29,32 @@ import java.util.List;
 @Tag(name = "Tasks", description = "APIs for task management and queue operations")
 public class TaskController {
     
+    private static final String USER_ID_HEADER = "X-User-Id";
+    
     private final TaskService taskService;
+    private final CerbosService cerbosService;
+    
+    /**
+     * Extract and validate user ID from HTTP request header
+     * @param request HTTP request
+     * @return validated user ID
+     * @throws RuntimeException if user ID is missing or invalid
+     */
+    private String validateAndExtractUserId(HttpServletRequest request) {
+        String userId = request.getHeader(USER_ID_HEADER);
+        if (userId == null || userId.trim().isEmpty()) {
+            log.error("Missing or empty user ID in request header: {}", USER_ID_HEADER);
+            throw new RuntimeException("Missing or invalid user ID");
+        }
+        return userId.trim();
+    }
     
     @GetMapping("/queue/{queueName}")
     @Operation(summary = "Get tasks by queue", 
               description = "Retrieve all open tasks from a specific queue")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Tasks retrieved successfully"),
+        @ApiResponse(responseCode = "403", description = "Unauthorized access to queue"),
         @ApiResponse(responseCode = "404", description = "Queue not found")
     })
     public ResponseEntity<List<QueueTaskResponse>> getTasksByQueue(
@@ -45,9 +66,17 @@ public class TaskController {
             @RequestParam(required = false, defaultValue = "false") boolean unassignedOnly,
             HttpServletRequest httpRequest) {
         
-        String userId = httpRequest.getHeader("X-User-Id");
+        String userId = validateAndExtractUserId(httpRequest);
         log.info("Getting tasks for queue: {} in business app: {}, unassignedOnly: {} by user: {}", 
                 queueName, businessAppName, unassignedOnly, userId);
+        
+        // Authorization check for queue access
+        boolean isAuthorized = cerbosService.canAccessQueue(userId, businessAppName, queueName);
+        if (!isAuthorized) {
+            log.warn("User {} unauthorized to access queue: {} in business app: {}", userId, queueName, businessAppName);
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        
         List<QueueTaskResponse> tasks = taskService.getTasksByQueue(queueName, unassignedOnly);
         
         return ResponseEntity.ok(tasks);
@@ -57,15 +86,25 @@ public class TaskController {
     @Operation(summary = "Get my tasks", 
               description = "Retrieve all tasks assigned to the current user")
     @ApiResponses({
-        @ApiResponse(responseCode = "200", description = "Tasks retrieved successfully")
+        @ApiResponse(responseCode = "200", description = "Tasks retrieved successfully"),
+        @ApiResponse(responseCode = "403", description = "Unauthorized access to business app")
     })
     public ResponseEntity<List<QueueTaskResponse>> getMyTasks(
             @Parameter(description = "Business application name", required = true)
             @PathVariable String businessAppName,
             HttpServletRequest httpRequest) {
         
-        String userId = httpRequest.getHeader("X-User-Id");
+        String userId = validateAndExtractUserId(httpRequest);
         log.info("Getting tasks for user: {} in business app: {}", userId, businessAppName);
+        
+        // For my-tasks, we use a generic view_task authorization with business app context
+        // This checks if user has any task-related roles in this business app
+        boolean isAuthorized = cerbosService.isAuthorized(userId, CerbosService.ACTION_VIEW_TASK, businessAppName, businessAppName, null);
+        if (!isAuthorized) {
+            log.warn("User {} unauthorized to view tasks in business app: {}", userId, businessAppName);
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        
         List<QueueTaskResponse> tasks = taskService.getTasksByAssignee(userId);
         
         return ResponseEntity.ok(tasks);
@@ -76,6 +115,7 @@ public class TaskController {
               description = "Retrieve detailed task information including form data")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Task details retrieved successfully"),
+        @ApiResponse(responseCode = "403", description = "Unauthorized access to task"),
         @ApiResponse(responseCode = "404", description = "Task not found")
     })
     public ResponseEntity<TaskDetailResponse> getTaskDetails(
@@ -85,11 +125,18 @@ public class TaskController {
             @PathVariable String taskId,
             HttpServletRequest httpRequest) throws WorkflowException {
         
-        String userId = httpRequest.getHeader("X-User-Id");
+        String userId = validateAndExtractUserId(httpRequest);
         log.info("Getting task details for task: {} in business app: {} by user: {}", 
                 taskId, businessAppName, userId);
-        TaskDetailResponse taskDetails = taskService.getTaskDetails(taskId);
         
+        // Generic task authorization - let Cerbos policies determine access patterns
+        boolean isAuthorized = cerbosService.isAuthorizedForTask(userId, CerbosService.ACTION_VIEW_TASK, businessAppName, taskId);
+        if (!isAuthorized) {
+            log.warn("User {} unauthorized to view task: {} in business app: {}", userId, taskId, businessAppName);
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        
+        TaskDetailResponse taskDetails = taskService.getTaskDetails(taskId);
         return ResponseEntity.ok(taskDetails);
     }
     
@@ -99,6 +146,7 @@ public class TaskController {
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Task claimed successfully"),
         @ApiResponse(responseCode = "400", description = "Task already assigned"),
+        @ApiResponse(responseCode = "403", description = "Unauthorized to claim task"),
         @ApiResponse(responseCode = "404", description = "Task not found")
     })
     public ResponseEntity<QueueTaskResponse> claimTask(
@@ -108,10 +156,17 @@ public class TaskController {
             @PathVariable String taskId,
             HttpServletRequest httpRequest) throws WorkflowException {
         
-        String userId = httpRequest.getHeader("X-User-Id");
+        String userId = validateAndExtractUserId(httpRequest);
         log.info("User {} claiming task: {} in business app: {}", userId, taskId, businessAppName);
-        QueueTaskResponse task = taskService.claimTask(taskId, userId);
         
+        // Generic task authorization - policies determine business rules (Four-Eyes, queues, etc.)
+        boolean isAuthorized = cerbosService.isAuthorizedForTask(userId, CerbosService.ACTION_CLAIM_TASK, businessAppName, taskId);
+        if (!isAuthorized) {
+            log.warn("User {} unauthorized to claim task: {} in business app: {}", userId, taskId, businessAppName);
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        
+        QueueTaskResponse task = taskService.claimTask(taskId, userId);
         return ResponseEntity.ok(task);
     }
     
@@ -121,8 +176,8 @@ public class TaskController {
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Task completed successfully"),
         @ApiResponse(responseCode = "400", description = "Invalid request"),
-        @ApiResponse(responseCode = "404", description = "Task not found"),
-        @ApiResponse(responseCode = "403", description = "User not authorized to complete this task")
+        @ApiResponse(responseCode = "403", description = "User not authorized to complete this task"),
+        @ApiResponse(responseCode = "404", description = "Task not found")
     })
     public ResponseEntity<TaskCompletionResponse> completeTask(
             @Parameter(description = "Business application name", required = true)
@@ -132,10 +187,17 @@ public class TaskController {
             @Valid @RequestBody(required = false) CompleteTaskRequest request,
             HttpServletRequest httpRequest) throws WorkflowException {
         
-        String userId = httpRequest.getHeader("X-User-Id");
+        String userId = validateAndExtractUserId(httpRequest);
         log.info("Completing task: {} in business app: {} by user: {}", taskId, businessAppName, userId);
-        TaskCompletionResponse response = taskService.completeTask(taskId, request);
         
+        // Generic task authorization - policies determine business rules (Four-Eyes, assignment, etc.)
+        boolean isAuthorized = cerbosService.isAuthorizedForTask(userId, CerbosService.ACTION_COMPLETE_TASK, businessAppName, taskId);
+        if (!isAuthorized) {
+            log.warn("User {} unauthorized to complete task: {} in business app: {}", userId, taskId, businessAppName);
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        
+        TaskCompletionResponse response = taskService.completeTask(taskId, userId, request);
         return ResponseEntity.ok(response);
     }
     
@@ -144,6 +206,7 @@ public class TaskController {
               description = "Release a claimed task back to the queue")
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Task unclaimed successfully"),
+        @ApiResponse(responseCode = "403", description = "Unauthorized to unclaim task"),
         @ApiResponse(responseCode = "404", description = "Task not found")
     })
     public ResponseEntity<QueueTaskResponse> unclaimTask(
@@ -153,10 +216,17 @@ public class TaskController {
             @PathVariable String taskId,
             HttpServletRequest httpRequest) throws WorkflowException {
         
-        String userId = httpRequest.getHeader("X-User-Id");
+        String userId = validateAndExtractUserId(httpRequest);
         log.info("Unclaiming task: {} in business app: {} by user: {}", taskId, businessAppName, userId);
-        QueueTaskResponse task = taskService.unclaimTask(taskId);
         
+        // Generic task authorization - policies determine ownership and unclaim rules
+        boolean isAuthorized = cerbosService.isAuthorizedForTask(userId, CerbosService.ACTION_UNCLAIM_TASK, businessAppName, taskId);
+        if (!isAuthorized) {
+            log.warn("User {} unauthorized to unclaim task: {} in business app: {}", userId, taskId, businessAppName);
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        
+        QueueTaskResponse task = taskService.unclaimTask(taskId);
         return ResponseEntity.ok(task);
     }
     
@@ -166,6 +236,7 @@ public class TaskController {
     @ApiResponses({
         @ApiResponse(responseCode = "200", description = "Next task retrieved successfully"),
         @ApiResponse(responseCode = "204", description = "No available tasks in queue"),
+        @ApiResponse(responseCode = "403", description = "Unauthorized access to queue"),
         @ApiResponse(responseCode = "404", description = "Queue not found")
     })
     public ResponseEntity<QueueTaskResponse> getNextTaskFromQueue(
@@ -175,9 +246,17 @@ public class TaskController {
             @PathVariable String queueName,
             HttpServletRequest httpRequest) {
         
-        String userId = httpRequest.getHeader("X-User-Id");
+        String userId = validateAndExtractUserId(httpRequest);
         log.info("Getting next available task from queue: {} in business app: {} by user: {}", 
                 queueName, businessAppName, userId);
+        
+        // Authorization check for queue access (similar to view_queue)
+        boolean isAuthorized = cerbosService.canAccessQueue(userId, businessAppName, queueName);
+        if (!isAuthorized) {
+            log.warn("User {} unauthorized to access queue: {} in business app: {}", userId, queueName, businessAppName);
+            return ResponseEntity.status(HttpStatus.FORBIDDEN).build();
+        }
+        
         QueueTaskResponse nextTask = taskService.getNextTaskFromQueue(queueName);
         
         if (nextTask == null) {

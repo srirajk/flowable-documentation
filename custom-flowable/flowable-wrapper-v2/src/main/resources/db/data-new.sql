@@ -12,6 +12,7 @@ ON CONFLICT (business_app_name) DO NOTHING;
 INSERT INTO business_app_roles (business_app_id, role_name, role_display_name, description, metadata, is_active, created_at, updated_at) VALUES
 -- Sanctions Management - Default Roles
 ((SELECT id FROM business_applications WHERE business_app_name = 'Sanctions-Management'), 'deployer', 'Deployer', 'Can deploy and register workflows', '{"permissions": ["deploy", "register"], "type": "default"}', true, NOW(), NOW()),
+((SELECT id FROM business_applications WHERE business_app_name = 'Sanctions-Management'), 'workflow-initiator', 'Workflow Initiator', 'Can start and read workflow instances (service account)', '{"permissions": ["start_workflow_instance", "read_workflow_instance"], "type": "default"}', true, NOW(), NOW()),
 ((SELECT id FROM business_applications WHERE business_app_name = 'Sanctions-Management'), 'business-user', 'Business User', 'Basic business user access', '{"permissions": ["view"], "type": "default"}', true, NOW(), NOW()),
 ((SELECT id FROM business_applications WHERE business_app_name = 'Sanctions-Management'), 'workflow-admin', 'Workflow Administrator', 'Full administrative access', '{"permissions": ["deploy", "manage", "admin", "view", "claim", "complete"], "type": "default"}', true, NOW(), NOW()),
 
@@ -94,6 +95,7 @@ INSERT INTO user_business_app_roles (user_id, business_app_role_id, is_active) V
 -- Operation Users
 ('operation-user-1', (SELECT r.id FROM business_app_roles r JOIN business_applications a ON r.business_app_id = a.id WHERE a.business_app_name = 'Sanctions-Management' AND r.role_name = 'workflow-admin'), true),
 ('automation-user-2', (SELECT r.id FROM business_app_roles r JOIN business_applications a ON r.business_app_id = a.id WHERE a.business_app_name = 'Sanctions-Management' AND r.role_name = 'deployer'), true),
+('automation-user-2', (SELECT r.id FROM business_app_roles r JOIN business_applications a ON r.business_app_id = a.id WHERE a.business_app_name = 'Sanctions-Management' AND r.role_name = 'workflow-initiator'), true),
 
 -- US Region Role Assignments
 ('us-l1-operator-1', (SELECT r.id FROM business_app_roles r JOIN business_applications a ON r.business_app_id = a.id WHERE a.business_app_name = 'Sanctions-Management' AND r.role_name = 'level1-operator'), true),

@@ -14,8 +14,8 @@ import org.springframework.context.annotation.Configuration;
 @Slf4j
 public class CerbosConfig {
 
-    //@Value("${cerbos.endpoint:localhost:3593}")
-    private String cerbosEndpoint = "localhost:3592";
+    @Value("${cerbos.endpoint:cerbos:3592}")
+    private String cerbosEndpoint;
 
     @Value("${cerbos.tls.enabled:false}")
     private boolean tlsEnabled;

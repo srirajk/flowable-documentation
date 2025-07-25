@@ -15,9 +15,6 @@ import java.util.Map;
 @Schema(description = "Request to complete a task")
 public class CompleteTaskRequest {
     
-    @Schema(description = "User ID completing the task", example = "john.doe")
-    private String userId;
-    
     @Schema(description = "Variables to set when completing the task", 
             example = "{\"approved\": true, \"comments\": \"Looks good\"}")
     private Map<String, Object> variables;

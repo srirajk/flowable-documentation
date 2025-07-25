@@ -73,7 +73,7 @@ public class TaskService {
     /**
      * Complete a task
      */
-    public TaskCompletionResponse completeTask(String taskId, CompleteTaskRequest request) throws WorkflowException {
+    public TaskCompletionResponse completeTask(String taskId, String userId, CompleteTaskRequest request) throws WorkflowException {
         // Get task from queue_tasks
         QueueTaskResponse queueTask = queueTaskService.getQueueTask(taskId);
         String taskDefinitionKey = queueTask.getTaskDefinitionKey(); // Capture the original task definition key
@@ -84,11 +84,10 @@ public class TaskService {
                 "Task must be claimed before completion");
         }
 
-        // Verify user is authorized (if userId provided)
-        if (request != null && request.getUserId() != null &&
-            !request.getUserId().equals(queueTask.getAssignee())) {
+        // Verify user is authorized (user must be the assignee)
+        if (userId != null && !userId.equals(queueTask.getAssignee())) {
             throw new WorkflowException("UNAUTHORIZED",
-                "User " + request.getUserId() + " is not authorized to complete this task");
+                "User " + userId + " is not authorized to complete this task. Task is assigned to: " + queueTask.getAssignee());
         }
 
         String processInstanceId = queueTask.getProcessInstanceId();

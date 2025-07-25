@@ -78,6 +78,18 @@ public class CerbosResourceContext {
          * Workflow metadata (task-to-queue mappings and configuration)
          */
         private Map<String, Object> workflowMetadata;
+        
+        /**
+         * Create request context (for authorization during process creation)
+         * Contains the variables from StartProcessRequest for authorization decisions
+         */
+        private Map<String, Object> createRequest;
+        
+        /**
+         * Current queue being accessed (for queue access operations)
+         * Contains the specific queue name being requested for authorization
+         */
+        private String currentQueue;
     }
     
     @Data

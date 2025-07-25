@@ -10,6 +10,8 @@ services:
     volumes:
       - ./cerbos/:/tmp/cerbos
     command: server --config /tmp/cerbos/config/config.yaml
+    networks:
+      - flowable-network
 
   postgres:
     image: postgres:16-alpine
@@ -61,6 +63,8 @@ services:
       SPRING_DATASOURCE_PASSWORD: flowable
       SPRING_JPA_HIBERNATE_DDL_AUTO: update
       FLOWABLE_DATABASE_SCHEMA_UPDATE: true
+      WORKFLOW_DEFINITIONS_PATH: /app/definitions
+      CERBOS_ENDPOINT: "cerbos:3592"
     ports:
       - "8090:8090"
     depends_on:

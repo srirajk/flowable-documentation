@@ -69,6 +69,103 @@ public class CerbosResourceBuilder {
     }
     
     /**
+     * Build generic task resource context for any business application
+     * This method extracts process context from the task and builds appropriate resource context
+     * 
+     * @param businessAppName Business application name
+     * @param taskId Task ID for context building
+     * @return Generic task resource context
+     */
+    public CerbosResourceContext buildTaskResourceContext(String businessAppName, String taskId) {
+        log.debug("Building generic task resource context for businessApp: {}, task: {}", businessAppName, taskId);
+        
+        try {
+            // Get task information to extract process context
+            Optional<QueueTask> queueTaskOpt = queueTaskRepository.findByTaskId(taskId);
+            if (queueTaskOpt.isEmpty()) {
+                log.warn("Queue task not found for taskId: {}", taskId);
+                throw new RuntimeException("Task not found: " + taskId);
+            }
+            
+            QueueTask queueTask = queueTaskOpt.get();
+            String processInstanceId = queueTask.getProcessInstanceId();
+            
+            // Get process definition key from the process instance
+            String processDefinitionKey = getProcessDefinitionKey(processInstanceId);
+            
+            // Build resource context with task-specific information
+            return buildResourceContextInternal(processDefinitionKey, businessAppName, processInstanceId, taskId);
+            
+        } catch (Exception e) {
+            log.error("Failed to build task resource context for businessApp: {}, task: {}", 
+                    businessAppName, taskId, e);
+            throw new RuntimeException("Failed to build task resource context", e);
+        }
+    }
+    
+    /**
+     * Build queue resource context within the workflow context
+     * Queue access is part of the same workflow policy, not a separate resource
+     * 
+     * @param businessAppName Business application name
+     * @param queueName Queue name for authorization
+     * @return Workflow resource context for queue access
+     */
+    public CerbosResourceContext buildQueueResourceContextForWorkflow(String businessAppName, String queueName) {
+        log.debug("Building queue resource context within workflow for businessApp: {}, queue: {}", 
+                businessAppName, queueName);
+        
+        // Dynamically determine the process definition key from repository
+        // This will throw RuntimeException if business app or workflow not found
+        String processDefinitionKey = determineProcessDefinitionKeyForBusinessApp(businessAppName);
+        
+        // Build workflow resource context for queue access
+        return buildResourceContextForQueueAccess(processDefinitionKey, businessAppName, queueName);
+    }
+    
+    /**
+     * Internal method to build resource context for queue access
+     */
+    private CerbosResourceContext buildResourceContextForQueueAccess(String processDefinitionKey,
+                                                                   String businessAppName, 
+                                                                   String queueName) {
+        
+        // Build resource kind for Cerbos policy targeting - same as workflow
+        String resourceKind = businessAppName + "::" + processDefinitionKey;
+        
+        // Build resource ID for queue access
+        String resourceId = businessAppName + "::" + queueName;
+        
+        // Get business app metadata
+        Map<String, Object> businessAppMetadata = getBusinessAppMetadata(businessAppName);
+        
+        // Get workflow metadata (without adding queue-specific data)
+        Map<String, Object> workflowMetadata = getWorkflowMetadata(processDefinitionKey, businessAppName);
+        
+        // Build resource context for queue access
+        CerbosResourceContext.CerbosResourceAttributes attributes = CerbosResourceContext.CerbosResourceAttributes.builder()
+                .businessApp(businessAppName)
+                .businessAppMetadata(businessAppMetadata)
+                .processDefinitionKey(processDefinitionKey)
+                .processInstanceId(null) // No specific process instance for queue access
+                .currentTask(null) // No current task for queue access
+                .processVariables(new HashMap<>()) // No process variables for queue access
+                .taskStates(new HashMap<>()) // No task states for queue access
+                .workflowMetadata(workflowMetadata) // Workflow metadata without queue-specific data
+                .currentQueue(queueName) // Set the specific queue being accessed
+                .build();
+        
+        CerbosResourceContext resourceContext = CerbosResourceContext.builder()
+                .kind(resourceKind)
+                .id(resourceId)
+                .attr(attributes)
+                .build();
+        
+        log.debug("Built queue resource context: kind={}, id={}, queue={}", resourceKind, resourceId, queueName);
+        return resourceContext;
+    }
+    
+    /**
      * Internal method to build resource context
      */
     private CerbosResourceContext buildResourceContextInternal(String processDefinitionKey,
@@ -204,6 +301,36 @@ public class CerbosResourceBuilder {
         }
         
         return taskStates;
+    }
+    
+    /**
+     * Dynamically determine the process definition key for a business application
+     * This method looks up the active workflow for the given business app from repository
+     * Fails hard if business app or workflow not found - no defaults allowed
+     */
+    private String determineProcessDefinitionKeyForBusinessApp(String businessAppName) {
+        // Get business application - must exist
+        Optional<BusinessApplication> businessAppOpt = businessApplicationRepository.findByBusinessAppName(businessAppName);
+        if (businessAppOpt.isEmpty()) {
+            log.error("Business application not found in repository: {}", businessAppName);
+            throw new RuntimeException("Business application not found: " + businessAppName);
+        }
+        
+        Long businessAppId = businessAppOpt.get().getId();
+        
+        // Get the active workflow metadata for this business app - must exist
+        List<WorkflowMetadata> activeWorkflows = workflowMetadataRepository.findByBusinessApplicationIdAndActiveTrue(businessAppId);
+        
+        if (activeWorkflows.isEmpty()) {
+            log.error("No active workflows found for business app: {}", businessAppName);
+            throw new RuntimeException("No active workflows found for business app: " + businessAppName);
+        }
+        
+        // Return the first active workflow (could be enhanced for multiple workflows)
+        String processDefinitionKey = activeWorkflows.get(0).getProcessDefinitionKey();
+        log.debug("Found process definition key: {} for business app: {}", processDefinitionKey, businessAppName);
+        
+        return processDefinitionKey;
     }
     
     /**

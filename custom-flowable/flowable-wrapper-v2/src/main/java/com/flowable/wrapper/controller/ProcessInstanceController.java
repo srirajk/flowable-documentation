@@ -49,7 +49,7 @@ public class ProcessInstanceController {
         
         // Cerbos authorization check for starting workflow instance
         boolean isAuthorized = cerbosService.isAuthorizedForCreation(
-                userId, "start_workflow_instance", request.getProcessDefinitionKey(), businessAppName);
+                userId, "start_workflow_instance", request.getProcessDefinitionKey(), businessAppName, request);
         
         if (!isAuthorized) {
             log.warn("User {} not authorized to create process {} in business app {}", 

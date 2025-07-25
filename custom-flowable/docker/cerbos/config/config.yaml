@@ -2,6 +2,7 @@
 server:
   httpListenAddr: ":3592"
   grpcListenAddr: ":3593"
+  logRequestPayloads: true
 
 engine:
   defaultPolicyVersion: "default"
@@ -15,3 +16,4 @@ storage:
   disk:
     directory: "tmp/cerbos/policies"
     watchForChanges: true
+

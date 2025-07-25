@@ -18,6 +18,7 @@ import org.flowable.bpmn.model.UserTask;
 import org.flowable.engine.RepositoryService;
 import org.flowable.engine.repository.Deployment;
 import org.flowable.engine.repository.ProcessDefinition;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -40,6 +41,9 @@ public class WorkflowMetadataService {
     private final WorkflowMetadataRepository workflowMetadataRepository;
     private final BusinessApplicationRepository businessApplicationRepository;
     private final RepositoryService repositoryService;
+    
+    @Value("${workflow.definitions.path:/app/definitions}")
+    private String definitionsPath;
     
     /**
      * Register workflow metadata with candidate group to queue mappings
@@ -229,7 +233,7 @@ public class WorkflowMetadataService {
         try {
             // Read BPMN file from mounted directory
             // TODO remove the hardcoded path
-            Path filePath = Paths.get("/app/definitions", filename);
+            Path filePath = Paths.get(definitionsPath, filename);
             if (!Files.exists(filePath)) {
                 throw new ResourceNotFoundException("BPMN file", filename);
             }

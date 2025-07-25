@@ -1,0 +1,156 @@
+# 🔐 Cerbos Resource Policy for Sanctions Management - Sanctions Case Management Workflow
+# This policy controls access to sanctionsCaseManagement process instances in Sanctions-Management business app.
+
+apiVersion: "api.cerbos.dev/v1"
+resourcePolicy:
+  # The kind of resource this policy applies to (specific to business app and process).
+  resource: "Sanctions-Management::sanctionsCaseManagement"
+  version: "default"
+  # Rules define who can perform which actions.
+  rules:
+    # The 'workflow-admin' role has full access to workflow instances.
+    - actions: ["start_workflow_instance", "read_workflow_instance", "suspend_workflow_instance", "terminate_workflow_instance"]
+      roles: ["workflow-admin"]
+      condition:
+        match:
+          expr: request.resource.attr.businessApp in request.principal.attr.businessApps
+      effect: EFFECT_ALLOW
+
+    # The 'workflow-initiator' role can start and read workflow instances with region-based access control.
+    - actions: ["start_workflow_instance", "read_workflow_instance"]
+      roles: ["workflow-initiator"]
+      condition:
+        match:
+          all:
+            of:
+              - expr: request.resource.attr.businessApp in request.principal.attr.businessApps
+              - expr: >
+                  request.principal.attr.region == "GLOBAL" || 
+                  request.principal.attr.region == request.resource.attr.createRequest.region
+      effect: EFFECT_ALLOW
+
+    - actions: ["read_workflow_instance"]
+      roles: ["level1-operator", "level1-supervisor", "level2-operator", "level2-supervisor" ]
+      condition:
+        match:
+          all:
+            of:
+              - expr: request.resource.attr.businessApp in request.principal.attr.businessApps
+              - expr: >
+                  request.principal.attr.region == request.resource.attr.createRequest.region
+      effect: EFFECT_ALLOW
+
+    # ========================================================================================
+    # TASK-LEVEL AUTHORIZATION RULES
+    # ========================================================================================
+    
+    # Task viewing - operators can view tasks in their queues
+    - actions: ["view_task"]
+      roles: ["level1-operator", "level1-supervisor", "level2-operator", "level2-supervisor"]
+      condition:
+        match:
+          all:
+            of:
+              - expr: request.resource.attr.businessApp in request.principal.attr.businessApps
+              - expr: request.resource.attr.currentTask.queue in request.principal.attr.queues
+      effect: EFFECT_ALLOW
+    
+    # Task claiming with Four-Eyes Principle enforcement
+    - actions: ["claim_task"]
+      roles: ["level1-operator", "level2-operator"]
+      condition:
+        match:
+          all:
+            of:
+              - expr: request.resource.attr.businessApp in request.principal.attr.businessApps
+              - expr: request.resource.attr.currentTask.queue in request.principal.attr.queues
+              - expr: >
+                  !has(request.resource.attr.currentTask.assignee) || 
+                  request.resource.attr.currentTask.assignee == ""
+              # Four-Eyes Principle: Bidirectional check - cannot claim maker if you did checker, or checker if you did maker
+              - expr: >
+                  !(
+                    (request.resource.attr.currentTask.taskDefinitionKey == "l1_checker_review_task" && 
+                     has(request.resource.attr.taskStates.l1_maker_review_task.assignee) &&
+                     request.resource.attr.taskStates.l1_maker_review_task.assignee == request.principal.id) ||
+                    (request.resource.attr.currentTask.taskDefinitionKey == "l1_maker_review_task" && 
+                     has(request.resource.attr.taskStates.l1_checker_review_task.assignee) &&
+                     request.resource.attr.taskStates.l1_checker_review_task.assignee == request.principal.id) ||
+                    (request.resource.attr.currentTask.taskDefinitionKey == "l2_checker_review_task" && 
+                     has(request.resource.attr.taskStates.l2_maker_review_task.assignee) &&
+                     request.resource.attr.taskStates.l2_maker_review_task.assignee == request.principal.id) ||
+                    (request.resource.attr.currentTask.taskDefinitionKey == "l2_maker_review_task" && 
+                     has(request.resource.attr.taskStates.l2_checker_review_task.assignee) &&
+                     request.resource.attr.taskStates.l2_checker_review_task.assignee == request.principal.id)
+                  )
+      effect: EFFECT_ALLOW
+    
+    # Supervisor task claiming (can claim any task in their level)
+    - actions: ["claim_task"] 
+      roles: ["level1-supervisor", "level2-supervisor"]
+      condition:
+        match:
+          all:
+            of:
+              - expr: request.resource.attr.businessApp in request.principal.attr.businessApps
+              - expr: request.resource.attr.currentTask.queue in request.principal.attr.queues
+              - expr: request.resource.attr.currentTask.assignee == null
+      effect: EFFECT_ALLOW
+    
+    # Task completion - only assigned user can complete
+    - actions: ["complete_task"]
+      roles: ["level1-operator", "level1-supervisor", "level2-operator", "level2-supervisor"]
+      condition:
+        match:
+          all:
+            of:
+              - expr: request.resource.attr.businessApp in request.principal.attr.businessApps
+              - expr: >
+                  request.resource.attr.currentTask.assignee == request.principal.id
+      effect: EFFECT_ALLOW
+
+    # Supervisory unclaiming - level1-supervisor can unclaim from level1 queues only
+    - actions: ["unclaim_task"]
+      roles: ["level1-supervisor"]
+      condition:
+        match:
+          all:
+            of:
+              - expr: request.resource.attr.businessApp in request.principal.attr.businessApps
+              - expr: request.resource.attr.currentTask.queue in ["level1-queue"]
+      effect: EFFECT_ALLOW
+    
+    # Supervisory unclaiming - level2-supervisor can unclaim from level2 queues only
+    - actions: ["unclaim_task"]
+      roles: ["level2-supervisor"]
+      condition:
+        match:
+          all:
+            of:
+              - expr: request.resource.attr.businessApp in request.principal.attr.businessApps
+              - expr: request.resource.attr.currentTask.queue in ["level2-queue"]
+      effect: EFFECT_ALLOW
+
+    # ========================================================================================
+    # QUEUE ACCESS RULES (within the same workflow context)
+    # ========================================================================================
+    
+    # Queue viewing - operators and supervisors can view queues they have access to
+    - actions: ["view_queue"]
+      roles: ["level1-operator", "level1-supervisor", "level2-operator", "level2-supervisor"]
+      condition:
+        match:
+          all:
+            of:
+              - expr: request.resource.attr.businessApp in request.principal.attr.businessApps
+              - expr: request.resource.attr.currentQueue in request.principal.attr.queues
+      effect: EFFECT_ALLOW
+    
+    # workflow-admin can view all queues in this business app
+    - actions: ["view_queue"]
+      roles: ["workflow-admin"]
+      condition:
+        match:
+          expr: request.resource.attr.businessApp in request.principal.attr.businessApps
+      effect: EFFECT_ALLOW
+

@@ -70,6 +70,17 @@ springdoc:
     operationsSorter: method
     tagsSorter: alpha
 
+# Cerbos configuration
+cerbos:
+  endpoint: ${CERBOS_ENDPOINT:localhost:3592}
+  tls:
+    enabled: ${CERBOS_TLS_ENABLED:false}
+
+# Workflow configuration
+workflow:
+  definitions:
+    path: ${WORKFLOW_DEFINITIONS_PATH:/Users/srirajkadimisetty/projects/flowable-documentation/custom-flowable/definitions}
+
 # Logging
 logging:
   level:

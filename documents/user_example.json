@@ -1,0 +1,41 @@
+{
+  "user": {
+    "id": "us-l1-supervisor-1",
+    "username": "us-l1-supervisor-1",
+    "email": "us-l1-supervisor-1@company.com",
+    "firstName": "Michael",
+    "lastName": "Brown",
+    "isActive": true,
+    "createdAt": 1753310773.757055,
+    "updatedAt": 1753310773.757055,
+    "attributes": {
+      "level": "L1",
+      "queues": [
+        "level1-queue",
+        "level1-supervisor-queue"
+      ],
+      "region": "US",
+      "department": "compliance"
+    }
+  },
+  "roleDetails": [
+    {
+      "id": 5,
+      "businessAppName": "Sanctions-Management",
+      "roleName": "level1-supervisor",
+      "roleDisplayName": "Level 1 Supervisor",
+      "description": "Can supervise Level 1 operations and escalate cases",
+      "isActive": true,
+      "createdAt": 1753310773.753543,
+      "metadata": {
+        "level": "L1",
+        "queue": "level1-queue"
+      }
+    }
+  ],
+  "metadata": {
+    "owner": "compliance-team",
+    "version": "1.0",
+    "processDefinitionKey": "sanctionsCaseManagement"
+  }
+}
